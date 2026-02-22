@@ -7,8 +7,18 @@ import pystray
 from PIL import Image, ImageDraw
 import sys
 
+
 def create_icon_image():
-    return Image.open("icon.png")
+
+    image = Image.new('RGBA', (64, 64), color=(0, 0, 0, 0))
+    d = ImageDraw.Draw(image)
+    
+    d.rounded_rectangle([4, 4, 60, 60], radius=12, fill=(30, 30, 46, 255))
+    d.rounded_rectangle([14, 14, 50, 50], radius=8, fill=(59, 130, 246, 255))
+    d.ellipse([24, 24, 38, 38], outline=(255, 255, 255, 255), width=3)
+    d.line([35, 35, 44, 44], fill=(255, 255, 255, 255), width=3)
+    
+    return image
 
 def on_open(icon, item):
     webbrowser.open("http://127.0.0.1:7860")
@@ -108,6 +118,7 @@ with gr.Blocks(title="Autonomous Research Agent") as app:
             with gr.Row():
                 run_btn = gr.Button("🚀 Run", variant="primary")
                 stop_btn = gr.Button("🛑 Stop", variant="stop")
+                copy_btn = gr.Button("📋 Copy Report")
                 
             research_output = gr.Markdown(label="Agent Output")
 
@@ -139,13 +150,17 @@ with gr.Blocks(title="Autonomous Research Agent") as app:
         outputs=[research_output]
     )
     
-    # Stop Research (Gradio natively cancels the generator)
+    copy_btn.click(
+        fn=lambda text: gr.Info("📋 Copied to clipboard!"),
+        inputs=[research_output],
+        js="(text) => { navigator.clipboard.writeText(text); return text; }"
+    )
+    
     stop_btn.click(
         fn=lambda: gr.Info("🛑 Research stopped by user."),
         cancels=[run_event]
     )
 
-    # --- NEW: Automatically fetch the full model list on startup ---
     app.load(
         fn=update_model_dropdown, 
         inputs=[provider_dd, base_url_field], 
@@ -155,20 +170,24 @@ with gr.Blocks(title="Autonomous Research Agent") as app:
 
 
 if __name__ == "__main__":
-    # 1. Start Gradio in a background daemon thread
-    # prevent_thread_lock=True is crucial here!
+    import time
+    
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, 'w')
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, 'w')
+
     server_thread = threading.Thread(
-        target=lambda: app.launch(server_port=7860, prevent_thread_lock=True, theme=gr.themes.Soft()),
+        target=lambda: app.launch(server_port=7860, prevent_thread_lock=True),
         daemon=True
     )
     server_thread.start()
 
-    # 2. Automatically open the browser on first launch
+    time.sleep(3)
     webbrowser.open("http://127.0.0.1:7860")
 
-    # 3. Create and run the System Tray Icon (This keeps the app alive)
     menu = pystray.Menu(
-        pystray.MenuItem("Open Research Agent", on_open, default=True),
+        pystray.MenuItem("Open CypherPK Agent", on_open, default=True),
         pystray.MenuItem("Quit", on_exit)
     )
     

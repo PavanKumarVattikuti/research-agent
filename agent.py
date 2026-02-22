@@ -4,6 +4,8 @@ import tempfile
 import requests
 import gradio as gr
 import time
+import datetime
+import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -107,8 +109,12 @@ def run_research_agent(user_query, provider, api_key, model_name, base_url,
 
     full_history += "📋 **Phase 1: Planning...**\n"
     yield full_history
+    time.sleep(4)
+    
+    today = datetime.datetime.now().strftime("%A, %B %d, %Y")
+    system_context = f"You are a live research agent. Today's current date is {today}."
 
-    plan_messages = [SystemMessage(content=PLANNER_PROMPT), HumanMessage(content=user_query)]
+    plan_messages = [SystemMessage(content=system_context + PLANNER_PROMPT), HumanMessage(content=user_query)]
     try:
         plan_response = llm.invoke(plan_messages)
         clean_json = plan_response.content.replace("```json", "").replace("```", "").strip()
@@ -131,7 +137,7 @@ def run_research_agent(user_query, provider, api_key, model_name, base_url,
         full_history += f"> *Step {index}: {step}*\n"
         yield full_history
         
-        executor_messages = [SystemMessage(content=EXECUTOR_PROMPT), HumanMessage(content=f"Current Task: {step}")]
+        executor_messages = [SystemMessage(content=system_context + EXECUTOR_PROMPT), HumanMessage(content=f"Current Task: {step}")]
         
         try:
             action_response = llm.invoke(executor_messages).content
@@ -141,34 +147,37 @@ def run_research_agent(user_query, provider, api_key, model_name, base_url,
             yield full_history
             time.sleep(15)
             continue # Skip this failed step and move to the next one in the plan
-
-        if "TOOL: SEARCH" in action_response:
-            query = action_response.split("SEARCH", 1)[1].strip().strip('"')
-            full_history += f"  - 🔍 Searching ({search_engine}): {query}\n"
-            yield full_history
             
-            result = perform_dynamic_search(query, search_engine, searx_url, brave_key, google_api, google_cse)
+        match = re.search(r'TOOL:\s*(SEARCH|VISIT|RSS)\s*([^\n]+)', action_response, re.IGNORECASE)
+
+        if match:
+            tool_name = match.group(1).upper()
+            # CHANGED: The regex [^\n]+ guarantees no newlines exist in this string
+            tool_arg = match.group(2).strip().strip('"\'\r')
+
+            if tool_name == "SEARCH":
+                full_history += f"  - 🔍 Searching ({search_engine}): {tool_arg}\n"
+                yield full_history
+                result = perform_dynamic_search(tool_arg, search_engine, searx_url, brave_key, google_api, google_cse)
                 
-        elif "TOOL: VISIT" in action_response:
-            url = action_response.split("VISIT", 1)[1].strip().strip('"')
-            full_history += f"  - 🌐 Visiting URL...\n"
-            yield full_history
-            try:
-                result = visit_webpage.invoke(url)
-            except Exception as e:
-                result = f"Failed to visit: {e}"
-                
-        elif "TOOL: RSS" in action_response:
-            url = action_response.split("RSS", 1)[1].strip().strip('"')
-            full_history += "  - 📰 Reading RSS...\n"
-            yield full_history
-            try:
-                result = read_rss_feed.invoke(url)
-            except Exception as e:
-                result = f"Failed to read feed: {e}"
+            elif tool_name == "VISIT":
+                full_history += f"  - 🌐 Visiting URL...\n"
+                yield full_history
+                try:
+                    result = visit_webpage.invoke(tool_arg)
+                except Exception as e:
+                    result = f"Failed to visit: {e}"
+                    
+            elif tool_name == "RSS":
+                full_history += f"  - 📰 Reading RSS...\n"
+                yield full_history
+                try:
+                    result = read_rss_feed.invoke(tool_arg)
+                except Exception as e:
+                    result = f"Failed to read feed: {e}"
         else:
             result = action_response.replace("RESULT:", "").strip()
-
+        
         research_notes.append(f"Task: {step}\nResult: {result[:800]}") 
         full_history += "  - ✅ Info collected.\n"
         yield full_history
@@ -179,8 +188,9 @@ def run_research_agent(user_query, provider, api_key, model_name, base_url,
     time.sleep(4)
 
     all_notes = "\n\n".join(research_notes)
+    
     writer_messages = [
-        SystemMessage(content=WRITER_PROMPT),
+        SystemMessage(content=system_context + WRITER_PROMPT),
         HumanMessage(content=f"Original Request: {user_query}\n\nResearch Notes:\n{all_notes}"),
     ]
 
