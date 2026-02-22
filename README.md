@@ -9,7 +9,7 @@ An autonomous AI research assistant that browses the web, reads RSS feeds, and v
 ### Option 1: Simple Download & Run (Recommended)
 No Python installation is required. Just download, extract, and run.
 
-1. Download the latest version from the [**Releases**](https://github.com/YOUR_USERNAME/research-agent/releases) page.
+1. Download the latest version from the [**Releases**](https://github.com/PavanKumarVattikuti/research-agent/releases) page.
 2. Extract the ZIP folder.
 3. Double-click `main.exe`.
 4. The app will open in your default browser, and a research icon will appear in your system tray.
@@ -47,3 +47,4 @@ To use this agent, you must provide an API key for one of the following provider
 - Autonomous Planning: The agent breaks down your query into a multi-step research plan.
 - Dynamic Search: Supports DuckDuckGo, SearXNG, Brave Search, and Google Search.
 - Persistent Config: Saves your API keys and model preferences locally for quick access.
+
