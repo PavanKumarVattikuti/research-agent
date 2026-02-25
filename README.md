@@ -3,6 +3,7 @@
 An autonomous AI research assistant that operates silently from your system tray. It automatically plans, browses the web, reads RSS feeds, and synthesizes information into comprehensive Markdown reports via a clean web interface.
 
 <p align="center">
+  <img src="assets/run0.png" width="32%" />
   <img src="assets/run1.png" width="32%" />
   <img src="assets/run2.png" width="32%" />
   <img src="assets/run3.png" width="32%" />
@@ -70,5 +71,6 @@ If you want to run the source code directly or modify the agent:
    Distributed under the MIT License. See [LICENSE](https://github.com/PavanKumarVattikuti/research-agent/blob/main/LICENSE) for more information.
 
 **Developed with ❤️ by Pavan Kumar**
+
 
 
