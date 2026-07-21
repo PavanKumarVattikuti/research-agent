@@ -18,5 +18,5 @@ dependencies = [
     "google-api-python-client>=2.190.0",
     "pyinstaller>=6.19.0",
     "pystray>=0.19.5",
-    "pillow>=12.1.1",
+    "pillow>=12.3.0",
 ]
