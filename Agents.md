@@ -192,5 +192,5 @@ uv sync
 uv run python main.py
 
 # Build standalone exe (Windows)
-uv run pyinstaller main.py --name "Research-Agent" --onefile --windowed --icon=icon.png
+uv run pyinstaller main.py --name "Research-Agent" --onefile --windowed --icon=icon.png --collect-all gradio --collect-all gradio_client --collect-all safehttpx --collect-all groovy --clean
 ```
