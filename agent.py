@@ -57,6 +57,11 @@ def _cleanup_temp_files() -> None:
 
 atexit.register(_cleanup_temp_files)
 
+
+def get_latest_report_file() -> str | None:
+    """Return the path to the most recently generated report file."""
+    return _TEMP_FILES[-1] if _TEMP_FILES else None
+
 # ---------------------------------------------------------------------------
 # Provider-aware delays (seconds between LLM calls)
 # Free-tier providers need breathing room; local/paid don't.
@@ -88,25 +93,25 @@ def update_model_dropdown(provider: str, base_url: str):
             if response.status_code == 200:
                 models = [m["id"] for m in response.json().get("data", [])]
                 if models:
-                    return gr.update(choices=models, value=models[0])
+                    return gr.Dropdown(choices=models, value=models[0])
         except Exception:
             pass
-        return gr.update(choices=["local-model"], value="local-model")
+        return gr.Dropdown(choices=["local-model"], value="local-model")
 
     elif provider == "OpenAI":
         choices = ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo", "gpt-3.5-turbo"]
-        return gr.update(choices=choices, value="gpt-4o-mini")
+        return gr.Dropdown(choices=choices, value="gpt-4o-mini")
 
     elif provider == "Anthropic":
         choices = ["claude-3-5-sonnet-latest", "claude-3-opus-latest", "claude-3-haiku-20240307"]
-        return gr.update(choices=choices, value="claude-3-5-sonnet-latest")
+        return gr.Dropdown(choices=choices, value="claude-3-5-sonnet-latest")
 
     elif provider == "Google Gemini":
         choices = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-pro", "gemini-2.5-flash"]
         # Default to flash — much higher free quota than pro
-        return gr.update(choices=choices, value="gemini-2.0-flash")
+        return gr.Dropdown(choices=choices, value="gemini-2.0-flash")
 
-    return gr.update(choices=[], value="")
+    return gr.Dropdown(choices=[], value="")
 
 
 # ---------------------------------------------------------------------------
@@ -185,20 +190,59 @@ def perform_dynamic_search(
 ) -> str:
     try:
         if search_engine == "Brave Search":
-            from langchain_community.tools import BraveSearch
-            return BraveSearch.from_api_key(api_key=brave_key, search_kwargs={"count": 5}).run(query)
+            if not brave_key:
+                return "Brave API key is required for Brave Search."
+            headers = {"X-Subscription-Token": brave_key, "Accept": "application/json"}
+            resp = requests.get(
+                "https://api.search.brave.com/res/v1/web/search",
+                params={"q": query, "count": 5},
+                headers=headers,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("web", {}).get("results", [])
+            return "\n".join(
+                f"- {r.get('title', '')}: {r.get('description', '')}\n  {r.get('url', '')}"
+                for r in results[:5]
+            ) or "No results found."
 
         elif search_engine == "Google Custom Search":
-            from langchain_community.utilities import GoogleSearchAPIWrapper
-            return GoogleSearchAPIWrapper(google_api_key=google_api, google_cse_id=google_cse).run(query)
+            if not google_api or not google_cse:
+                return "Google API key and CSE ID are required for Google Custom Search."
+            resp = requests.get(
+                "https://www.googleapis.com/customsearch/v1",
+                params={"key": google_api, "cx": google_cse, "q": query, "num": 5},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("items", [])
+            return "\n".join(
+                f"- {it.get('title', '')}: {it.get('snippet', '')}\n  {it.get('link', '')}"
+                for it in items[:5]
+            ) or "No results found."
 
         elif search_engine == "SearXNG":
-            from langchain_community.utilities import SearxSearchWrapper
-            return SearxSearchWrapper(searx_host=searx_url).run(query)
+            if not searx_url:
+                return "SearXNG URL is required for SearXNG."
+            resp = requests.get(
+                f"{searx_url.rstrip('/')}/search",
+                params={"q": query, "format": "json"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("results", [])
+            return "\n".join(
+                f"- {r.get('title', '')}: {r.get('content', '')}\n  {r.get('url', '')}"
+                for r in results[:5]
+            ) or "No results found."
 
         else:
-            from langchain_community.tools import DuckDuckGoSearchRun
-            return DuckDuckGoSearchRun().run(query)
+            from ddgs import DDGS
+            results = DDGS().text(query, max_results=5)
+            return "\n".join(
+                f"- {r.get('title', '')}: {r.get('body', '')}\n  {r.get('href', '')}"
+                for r in results
+            ) or "No results found."
 
     except Exception as exc:
         return f"Search Error ({search_engine}): {exc}"

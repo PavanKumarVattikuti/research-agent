@@ -14,6 +14,7 @@ UI improvements over original:
 """
 
 import json
+import multiprocessing
 import os
 import sys
 import threading
@@ -24,7 +25,7 @@ import gradio as gr
 from PIL import Image, ImageDraw
 import pystray
 
-from agent import run_research_agent, update_model_dropdown
+from agent import run_research_agent, update_model_dropdown, get_latest_report_file
 
 # ---------------------------------------------------------------------------
 # Config persistence
@@ -126,20 +127,18 @@ def _run_agent(
         max_steps=int(max_steps),
     ):
         _last_output = chunk
-        yield chunk, gr.update(visible=False)
+        yield chunk, gr.DownloadButton(visible=False)
 
     # After completion, show the download button (agent saves a temp .md file)
-    yield _last_output, gr.update(visible=True, value=None)
+    report_path = get_latest_report_file()
+    yield _last_output, gr.DownloadButton(visible=True, value=report_path)
 
 
 # ---------------------------------------------------------------------------
 # UI
 # ---------------------------------------------------------------------------
 
-with gr.Blocks(
-    title="Research Agent",
-    theme=gr.themes.Soft(primary_hue="blue", neutral_hue="slate"),
-) as app:
+with gr.Blocks(title="Research Agent") as app:
 
     gr.Markdown("# 🤖 Autonomous Research Agent")
 
@@ -306,6 +305,8 @@ with gr.Blocks(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
     # Silence output when running as a packaged exe
     if sys.stdout is None:
         sys.stdout = open(os.devnull, "w")
@@ -313,7 +314,11 @@ if __name__ == "__main__":
         sys.stderr = open(os.devnull, "w")
 
     server_thread = threading.Thread(
-        target=lambda: app.launch(server_port=7860, prevent_thread_lock=True),
+        target=lambda: app.launch(
+            server_port=7860,
+            prevent_thread_lock=True,
+            theme=gr.themes.Soft(primary_hue="blue", neutral_hue="slate"),
+        ),
         daemon=True,
     )
     server_thread.start()

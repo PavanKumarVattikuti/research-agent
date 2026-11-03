@@ -36,8 +36,8 @@ You must provide either an API key for a cloud provider **OR** run a local model
 No Python installation is required. Just download, extract, and run.
 
 1. Go to the [Releases](https://github.com/PavanKumarVattikuti/research-agent/releases) page.
-2. Download the latest `CypherPK-Research-Agent-vX.X.X.exe` file.
-3. Double-click `Research-Agent.exe` inside the folder. 
+2. Download the latest `Research-Agent.exe` file.
+3. Double-click `Research-Agent.exe` to run. 
 4. A research icon will appear in your system tray, and the interface will automatically open in your browser!
 
 ### Option 2: Clone & Run (For Developers)

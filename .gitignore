@@ -41,6 +41,9 @@ flagged/
 # Ignore temporary markdown reports your agent downloads
 *.md
 !README.md
+!Agents.md
+!project_structure.md
+!todolist.md
 
 # =========================
 # OS & IDE Cruft

@@ -4,13 +4,12 @@
 
 I currently provide security updates for the following versions of Research Agent:
 
-Version,Supported
-v1.2.x,:white_check_mark:
-< 1.1,:x:
 | Version | Supported          |
 | ------- | ------------------ |
+| 1.3.x   | :white_check_mark: |
 | 1.2.x   | :white_check_mark: |
-| 1.0.1   | :x:                |
+| < 1.2   | :x:                |
+
 ## Reporting a Vulnerability
 
 Since this is a solo project, I handle security reports directly through the repository's Discussions page.
