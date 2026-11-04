@@ -123,6 +123,20 @@
 | 70 | Implement @media print stylesheets and clean document typography in `src/App.css` | ✅ Done | Antigravity |
 | 71 | Add Print / Save to PDF (`.PDF`) button in toolbar and HTML export in `src/App.tsx` | ✅ Done | Antigravity |
 | 72 | Verify frontend build, compile release binary, package installer & launch app | ✅ Done | Antigravity |
+| 73 | Replace hardcoded gaming taxonomy with dynamic domain overview instructions in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+
+---
+
+## Task: Version 2.2.0 — Evidence-First Research Architecture & Domain Verification
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 73 | Define Evidence-First Data Contract & Publisher Blacklist in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+| 74 | Implement Entity Extraction, Canonical Deduplication & Claim Verification in `src-tauri/src/pipeline.rs` | 🔄 In Progress | Antigravity |
+| 75 | Build Evidence-First Presentation Workspace (Metrics, Cards, Claims, Matrix, Limitations) in `src/App.tsx` & `src/App.css` | ⬜ Todo | Antigravity |
+| 76 | Add 5-Domain Verification Fixtures (Games, AI, Chips, Space, Languages) & Test Suite in `src-tauri/src/pipeline.rs` | ⬜ Todo | Antigravity |
+| 77 | Align version to `2.2.0` across Cargo, Tauri, package.json, App.tsx, README, todolist & generate release notes | ⬜ Todo | Antigravity |
+| 78 | Full verification: `cargo test --lib`, `tsc`, `npm run build`, and walkthrough documentation | ⬜ Todo | Antigravity |
 
 ---
 
