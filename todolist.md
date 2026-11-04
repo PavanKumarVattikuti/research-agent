@@ -119,6 +119,7 @@
 | 66 | Version alignment v2.1.5, .gitignore legacy exclusion, README update & release notes | ✅ Done | Antigravity |
 | 67 | Standalone styled HTML export with dark theme, citations & clean markdown/clipboard in `src/App.tsx` & `src-tauri/src/lib.rs` | ✅ Done | Antigravity |
 | 68 | Normalize template routing synonyms & add auto-detection table fallback for cards in `src/App.tsx` & `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+| 69 | Upload updated production binary, NSIS setup installer & MSI bundle to GitHub Release v2.1.5 | ✅ Done | Antigravity |
 
 ---
 
