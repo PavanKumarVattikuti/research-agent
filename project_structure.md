@@ -1,6 +1,6 @@
-# 📂 Project Structure — Research Agent
+# 📂 Project Structure — Research Agent (v2.1.5)
 
-> Quick-reference index for every file and directory.
+> Quick-reference index for every file and directory in Version 2.1.5.
 > Use one-line descriptions to locate what you need fast.
 
 ---
@@ -8,101 +8,71 @@
 ```
 research-agent/
 │
-├── main.py                  # Entry point — Gradio UI, system tray, config persistence
-├── agent.py                 # Core logic — planner → executor → writer pipeline
-├── tools.py                 # LangChain tools — search, visit, RSS, link extraction
-├── prompts.py               # Prompt templates — planner, executor, writer roles
-├── debug_tests.py           # Standalone debug & verification test harness
+├── src/                          # SolidJS Frontend (Linear / Raycast / Perplexity Workspace)
+│   ├── App.tsx                   # Main reactive UI — hero search, activity timeline, sources drawer, grouped history
+│   ├── App.css                   # Premium workspace tokens, Geist typography scale, status badges, obsidian prose
+│   ├── index.tsx                 # SolidJS DOM bootstrap
+│   └── assets/                   # Frontend assets & icons
 │
-├── pyproject.toml           # Project metadata & dependencies (uv / pip)
-├── uv.lock                  # Locked dependency versions (uv)
-├── .python-version          # Pinned Python version (3.12)
+├── src-tauri/                    # Rust Tauri v2 Backend Core
+│   ├── Cargo.toml                # Rust dependencies (Tauri 2, reqwest, rusqlite, scraper, walkdir)
+│   ├── tauri.conf.json           # Tauri v2 configuration (window size, CSP, bundle)
+│   ├── capabilities/             # Tauri v2 window security capabilities
+│   └── src/                      # Rust modules
+│       ├── main.rs               # Desktop executable entry point
+│       ├── lib.rs                # Tauri command registry (test_llm, test_search, execute_research, delete_history_item)
+│       ├── pipeline.rs           # Relational intent disambiguation, domain grounding, status tagging, multi-angle reasoning
+│       ├── llm.rs                # Multi-protocol micro-task LLM client (OpenAI, Anthropic, Ollama, Custom REST)
+│       ├── tester.rs             # Live health tester for LLM & Search endpoints (latency & models)
+│       ├── search.rs             # Multi-source engine (DuckDuckGo, SearXNG, Brave, Google News RSS, Hacker News) + domain filter
+│       ├── vault.rs              # 100% Offline Obsidian & Markdown vault scanner & paragraph extractor
+│       ├── history.rs            # Embedded SQLite history store with in-memory test isolation & welcome seed
+│       └── ssrf.rs               # SSRF protection & private/loopback IP validation
 │
-├── config.json              # Runtime settings saved by the UI (git-ignored)
-├── .gitignore               # Ignore rules — secrets, caches, temp reports
-├── .env                     # Environment variables / API keys (git-ignored)
+├── package.json                  # Node.js dependencies (Vite, SolidJS, Tauri CLI, Tailwind v4, marked)
+├── vite.config.ts                # Vite configuration with Solid & Tailwind plugins
 │
-├── README.md                # User-facing docs — setup, features, screenshots
-├── SECURITY.md              # Vulnerability reporting policy
-├── CODE_OF_CONDUCT.md       # Contributor Covenant v2.0
-├── LICENSE                  # MIT License
-├── Agents.md                # Agent assistant guide for this project
-├── todolist.md              # Step-by-step task tracker across sessions
-├── project_structure.md     # ← You are here
+├── legacy/                       # Preserved Legacy Versions
+│   └── v1_backup/                # Fully preserved v1 Python implementation
+│       ├── main.py               # v1 Gradio entry point & system tray
+│       ├── agent.py              # v1 LangChain pipeline
+│       ├── tools.py              # v1 Python web tools & SSRF protection
+│       ├── prompts.py            # v1 Prompt templates
+│       ├── debug_tests.py        # v1 Verification suite
+│       ├── pyproject.toml        # v1 Python dependencies (uv)
+│       └── uv.lock               # v1 Lockfile
 │
-├── icon.png                 # App icon (raster)
-├── icon.svg                 # App icon (vector)
-│
-└── assets/                  # Screenshot gallery
-    ├── run0.png             # UI screenshot — idle state
-    ├── run1.png             # UI screenshot — planning phase
-    ├── run2.png             # UI screenshot — execution phase
-    └── run3.png             # UI screenshot — final report
+├── README.md                     # User-facing documentation & quick start
+├── SECURITY.md                   # Security & SSRF disclosure policy
+├── CODE_OF_CONDUCT.md            # Contributor standards
+├── LICENSE                       # MIT License
+├── Agents.md                     # AI assistant guide & architecture rules
+├── todolist.md                   # Step-by-step task tracking
+└── project_structure.md          # ← You are here
 ```
 
 ---
 
-## File Details
-
-### Source Code
-
-| File | Role | Key Responsibility |
-|------|------|--------------------|
-| [`main.py`](file:///f:/projects/research-agent/main.py) | **UI & Orchestration** | Gradio interface, system-tray icon, config save/load, depth presets, agent wrapper |
-| [`agent.py`](file:///f:/projects/research-agent/agent.py) | **Agent Core** | 3-phase pipeline (Plan → Execute → Write), LLM factory, retry/backoff, search dispatch |
-| [`tools.py`](file:///f:/projects/research-agent/tools.py) | **Tool Definitions** | `visit_webpage`, `read_rss_feed`, `extract_links`, SSRF protection, URL validation |
-| [`prompts.py`](file:///f:/projects/research-agent/prompts.py) | **Prompt Engineering** | Date-aware prompt templates for planner, executor, and writer roles |
-| [`debug_tests.py`](file:///f:/projects/research-agent/debug_tests.py) | **Testing & Verification** | Standalone test suite covering all tools, security checks, LLMs, and UI helpers |
-
-### Config & Build
+## Backend Modules (`src-tauri/src/`)
 
 | File | Purpose |
 |------|---------|
-| [`pyproject.toml`](file:///f:/projects/research-agent/pyproject.toml) | Package name, version, Python constraint (≥3.11, <3.13), all dependencies |
-| [`uv.lock`](file:///f:/projects/research-agent/uv.lock) | Reproducible lock file for the `uv` package manager |
-| [`.python-version`](file:///f:/projects/research-agent/.python-version) | Pins runtime to Python 3.12 |
-| [`.gitignore`](file:///f:/projects/research-agent/.gitignore) | Ignores secrets, caches, build artifacts, temp reports, OS cruft |
-
-### Documentation & Community
-
-| File | Purpose |
-|------|---------|
-| [`README.md`](file:///f:/projects/research-agent/README.md) | Getting started, features, screenshots, license |
-| [`SECURITY.md`](file:///f:/projects/research-agent/SECURITY.md) | How to report vulnerabilities (GitHub Discussions) |
-| [`CODE_OF_CONDUCT.md`](file:///f:/projects/research-agent/CODE_OF_CONDUCT.md) | Contributor Covenant v2.0 community standards |
-| [`LICENSE`](file:///f:/projects/research-agent/LICENSE) | MIT License — Copyright (c) 2026 Pavan Kumar |
-| [`Agents.md`](file:///f:/projects/research-agent/Agents.md) | Agent role definition and project knowledge base |
-| [`todolist.md`](file:///f:/projects/research-agent/todolist.md) | Step-by-step task tracking, claimed tasks, and resumption history |
-
-### Assets
-
-| File | Content |
-|------|---------|
-| [`icon.png`](file:///f:/projects/research-agent/icon.png) / [`icon.svg`](file:///f:/projects/research-agent/icon.svg) | App icon used for system tray and branding |
-| [`assets/run0–3.png`](file:///f:/projects/research-agent/assets) | Sequential screenshots showing the full research workflow |
+| [`main.rs`](file:///f:/projects/research-agent/src-tauri/src/main.rs) | Launches Tauri application runtime. |
+| [`lib.rs`](file:///f:/projects/research-agent/src-tauri/src/lib.rs) | Exposes `invoke` IPC commands and events to SolidJS frontend. |
+| [`pipeline.rs`](file:///f:/projects/research-agent/src-tauri/src/pipeline.rs) | Executes relational intent disambiguation, multi-angle evidence evaluation, and candidate extraction with status tags. |
+| [`llm.rs`](file:///f:/projects/research-agent/src-tauri/src/llm.rs) | Streams and invokes single-task LLM queries across 4 protocols. |
+| [`tester.rs`](file:///f:/projects/research-agent/src-tauri/src/tester.rs) | Tests endpoints, measures latency (ms), and detects available models. |
+| [`search.rs`](file:///f:/projects/research-agent/src-tauri/src/search.rs) | Queries primary search + Google News RSS + Hacker News Algolia, cleans HTML, and filters domain relevance. |
+| [`vault.rs`](file:///f:/projects/research-agent/src-tauri/src/vault.rs) | Scans Obsidian Markdown vaults offline and extracts scored excerpts. |
+| [`history.rs`](file:///f:/projects/research-agent/src-tauri/src/history.rs) | Saves and queries research sessions in embedded SQLite database with in-memory test isolation. |
+| [`ssrf.rs`](file:///f:/projects/research-agent/src-tauri/src/ssrf.rs) | Rejects private, loopback, link-local, and non-HTTP(S) addresses. |
 
 ---
 
-## Dependency Map
+## Frontend Modules (`src/`)
 
-```
-main.py
- └── agent.py
-      ├── tools.py        (visit_webpage, read_rss_feed, extract_links)
-      └── prompts.py      (get_planner_prompt, get_executor_prompt, get_writer_prompt)
-```
-
-**External libraries:**
-
-| Library | Used For |
-|---------|----------|
-| `gradio` | Web UI framework (v6.30+) |
-| `pystray` + `pillow` | System-tray icon |
-| `langchain` / `langchain-openai` | LLM orchestration (OpenAI-compatible) |
-| `langchain-anthropic` | Claude models (optional) |
-| `langchain-google-genai` | Gemini models (optional) |
-| `beautifulsoup4` | HTML parsing for webpage visits |
-| `feedparser` | RSS/Atom feed parsing |
-| `requests` | HTTP client for web tools, Brave, Google CSE, SearXNG |
-| `ddgs` | DuckDuckGo search backend (replaces deprecated `duckduckgo-search`) |
-| `pyinstaller` | Packaging as standalone `.exe` |
+| File | Purpose |
+|------|---------|
+| [`App.tsx`](file:///f:/projects/research-agent/src/App.tsx) | Complete SolidJS UI: research workspace, activity timeline, sources drawer, grouped history, Enter-to-run. |
+| [`App.css`](file:///f:/projects/research-agent/src/App.css) | Premium visual tokens, Geist/Inter scale, layered charcoal palette, status badges, markdown tables. |
+| [`index.tsx`](file:///f:/projects/research-agent/src/index.tsx) | Mounts SolidJS application into DOM. |

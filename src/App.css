@@ -1,0 +1,402 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #0C0E10;
+  --bg-primary: #121518;
+  --bg-secondary: #181C20;
+  --bg-elevated: #1F2429;
+  --border-subtle: #252B30;
+  --border-highlight: #343C44;
+  --text-primary: #E8EDF0;
+  --text-secondary: #929DA6;
+  --text-muted: #64707D;
+  --accent-cyan: #38D9C0;
+  --accent-glow: rgba(56, 217, 192, 0.15);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  overflow: hidden;
+  user-select: text;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.mono-font {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', 'Geist Mono', ui-monospace, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Custom sleek scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #252B30;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #343C44;
+}
+
+/* -------------------------------------------------------------------------- */
+/* PREMIUM RESEARCH WORKSPACE PROSE TYPOGRAPHY                               */
+/* -------------------------------------------------------------------------- */
+.prose-workspace,
+.prose-obsidian {
+  color: #D6DEE3;
+  font-size: 0.965rem;
+  line-height: 1.75;
+  letter-spacing: -0.01em;
+}
+
+.prose-workspace h1,
+.prose-obsidian h1 {
+  color: #FFFFFF;
+  font-size: 1.85rem; /* ~29-30px */
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  line-height: 1.25;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 0.65rem;
+}
+
+.prose-workspace h2,
+.prose-obsidian h2 {
+  color: #F0F4F7;
+  font-size: 1.35rem; /* ~21-22px */
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin-top: 1.85rem;
+  margin-bottom: 0.85rem;
+  line-height: 1.35;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding-bottom: 0.45rem;
+}
+
+.prose-workspace h3,
+.prose-obsidian h3 {
+  color: #E2E8EC;
+  font-size: 1.12rem; /* ~18px */
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin-top: 1.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.prose-workspace h4,
+.prose-obsidian h4 {
+  color: #CBD5DC;
+  font-size: 0.975rem;
+  font-weight: 600;
+  margin-top: 1.25rem;
+  margin-bottom: 0.45rem;
+}
+
+.prose-workspace p,
+.prose-obsidian p {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  line-height: 1.75;
+}
+
+.prose-workspace strong,
+.prose-obsidian strong {
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.prose-workspace em,
+.prose-obsidian em {
+  color: #E8EDF0;
+  font-style: italic;
+}
+
+/* Lists */
+.prose-workspace ul,
+.prose-obsidian ul {
+  list-style-type: disc;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-workspace ol,
+.prose-obsidian ol {
+  list-style-type: decimal;
+  padding-left: 1.5rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.prose-workspace li,
+.prose-obsidian li {
+  margin-bottom: 0.5rem;
+  line-height: 1.68;
+  padding-left: 0.2rem;
+}
+
+/* High-Density Research Tables */
+.prose-workspace table,
+.prose-obsidian table {
+  width: 100%;
+  margin-top: 1.5rem;
+  margin-bottom: 1.75rem;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: var(--bg-primary);
+  font-size: 0.885rem;
+}
+
+.prose-workspace thead,
+.prose-obsidian thead {
+  background: var(--bg-secondary);
+}
+
+.prose-workspace th,
+.prose-obsidian th {
+  padding: 0.85rem 1rem;
+  text-align: left;
+  font-size: 0.775rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.prose-workspace td,
+.prose-obsidian td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: #D6DEE3;
+  line-height: 1.55;
+  vertical-align: top;
+}
+
+.prose-workspace tr:last-child td,
+.prose-obsidian tr:last-child td {
+  border-bottom: none;
+}
+
+.prose-workspace tbody tr:hover,
+.prose-obsidian tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Blockquotes / Callouts */
+.prose-workspace blockquote,
+.prose-obsidian blockquote {
+  border-left: 3px solid var(--accent-cyan);
+  padding: 0.85rem 1.25rem;
+  margin: 1.5rem 0;
+  background: rgba(56, 217, 192, 0.04);
+  border-radius: 0 0.5rem 0.5rem 0;
+  color: #CCD6DC;
+}
+
+.prose-workspace blockquote p:last-child,
+.prose-obsidian blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* Code & Monospace Elements */
+.prose-workspace code,
+.prose-obsidian code {
+  background: var(--bg-secondary);
+  color: var(--accent-cyan);
+  padding: 0.15rem 0.45rem;
+  border-radius: 0.375rem;
+  font-size: 0.865em;
+  font-family: 'JetBrains Mono', monospace;
+  border: 1px solid var(--border-subtle);
+}
+
+.prose-workspace pre,
+.prose-obsidian pre {
+  background: #08090A;
+  border: 1px solid var(--border-subtle);
+  padding: 1.15rem 1.35rem;
+  border-radius: 0.75rem;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+}
+
+.prose-workspace pre code,
+.prose-obsidian pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: #E2E8EC;
+  font-size: 0.875rem;
+}
+
+/* Horizontal Rule */
+.prose-workspace hr,
+.prose-obsidian hr {
+  border: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  margin: 2.25rem 0;
+}
+
+/* Links */
+.prose-workspace a,
+.prose-obsidian a {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color 0.15s ease;
+}
+
+.prose-workspace a:hover,
+.prose-obsidian a:hover {
+  color: #62E5D0;
+}
+
+/* -------------------------------------------------------------------------- */
+/* EVIDENCE & CANDIDATE STATUS BADGES                                         */
+/* -------------------------------------------------------------------------- */
+.badge-confirmed {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34D399;
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+
+.badge-roadmap {
+  background: rgba(251, 191, 36, 0.12);
+  color: #FBBF24;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.badge-projected {
+  background: rgba(129, 140, 248, 0.12);
+  color: #818CF8;
+  border: 1px solid rgba(129, 140, 248, 0.25);
+}
+
+.badge-caution {
+  background: rgba(248, 113, 113, 0.12);
+  color: #F87171;
+  border: 1px solid rgba(248, 113, 113, 0.25);
+}
+
+/* Smooth Accordion and Fade Transitions */
+.accordion-content {
+  transition: max-height 0.2s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease;
+}
+
+/* -------------------------------------------------------------------------- */
+/* ANIMATED TAGLINE — Hero Page Single Rotating Word                          */
+/* -------------------------------------------------------------------------- */
+.rotating-word-slot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.4em;
+  overflow: hidden;
+  vertical-align: middle;
+  color: var(--accent-cyan);
+  min-width: 130px;
+}
+
+.rotating-word {
+  display: inline-block;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease;
+  will-change: transform, opacity;
+  white-space: nowrap;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-color: rgba(56, 217, 192, 0.35);
+  text-underline-offset: 4px;
+}
+
+.rotating-word-enter {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.rotating-word-exit {
+  transform: translateY(-28px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* HAPTIC STREAMING PANEL — Live Pipeline Progress                             */
+/* -------------------------------------------------------------------------- */
+.haptic-panel {
+  scrollbar-width: none;
+}
+.haptic-panel::-webkit-scrollbar {
+  display: none;
+}
+
+.haptic-line {
+  animation: haptic-slide-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes haptic-slide-in {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+/* -------------------------------------------------------------------------- */
+/* RANKED LIST CARDS                                                           */
+/* -------------------------------------------------------------------------- */
+.ranked-card {
+  transition: all 0.15s ease;
+}
+.rank-badge {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* -------------------------------------------------------------------------- */
+/* NEWS FEED CARDS                                                             */
+/* -------------------------------------------------------------------------- */
+.news-card {
+  transition: all 0.15s ease;
+}
+.news-card-source {
+  font-size: 0.69rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 500;
+}
+
+/* -------------------------------------------------------------------------- */
+/* COMPARISON TABLE — enhanced table highlight                                 */
+/* -------------------------------------------------------------------------- */
+.comparison-enhanced table {
+  font-size: 0.84rem;
+}
+.comparison-enhanced thead th:first-child {
+  color: var(--accent-cyan);
+}
+.comparison-enhanced tbody tr:hover {
+  background: rgba(56, 217, 192, 0.03);
+}
+
+/* -------------------------------------------------------------------------- */
+/* FLASHCARDS                                                                  */
+/* -------------------------------------------------------------------------- */
+.flashcard {
+  user-select: none;
+}
+.flashcard.flipped .flashcard-inner {
+  transform: rotateY(180deg) !important;
+}
