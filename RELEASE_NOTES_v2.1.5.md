@@ -53,7 +53,7 @@ The synthesis engine auto-selects and applies custom UI templates:
 ### 5. 🗄️ Offline Vault & Local Privacy
 - Embedded SQLite database stores search sessions locally with zero cloud telemetry.
 - Query local Obsidian and Markdown vaults with `[[Note]]` citations without any network connection.
-- 1-click **Export to Downloads** automatically writes clean `.md` reports directly to your Downloads folder.
+- 1-click **Export to Downloads** automatically writes clean `.md` markdown files and styled `.html` web presentations with cards directly to your Downloads folder.
 
 ---
 
