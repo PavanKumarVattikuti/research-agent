@@ -1,7 +1,7 @@
-# 📂 Project Structure — Research Agent (v2.1.5)
+# 📂 Project Structure — Research Agent (v2.2.0)
 
-> Quick-reference index for every file and directory in Version 2.1.5.
-> Use one-line descriptions to locate what you need fast.
+> Quick-reference index for every file and directory in Version 2.2.0.
+> Evidence-First Research Architecture with claim-level verification and structured data.
 
 ---
 

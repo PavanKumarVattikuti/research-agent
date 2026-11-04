@@ -31,6 +31,59 @@ interface CandidateAnswer {
   sources: string[];
 }
 
+interface ClaimEvidence {
+  source_id: number;
+  source_title: string;
+  publisher: string;
+  url: string;
+  source_type: string; // "Primary" | "Secondary" | "Community"
+  publication_date?: string;
+  excerpt: string;
+}
+
+interface EntityClaim {
+  claim: string;
+  status: string; // "Verified" | "Corroborated" | "Uncertain" | "Conflicting"
+  explanation: string;
+  evidence: ClaimEvidence[];
+}
+
+interface ResearchEntity {
+  rank: number;
+  name: string;
+  category: string;
+  developer: string;
+  platforms: string;
+  expected_release: string;
+  status: string; // "Confirmed" | "Roadmap Target" | "Uncertain"
+  why_qualifies: string;
+  claims: EntityClaim[];
+  limitations?: string;
+}
+
+interface ComparisonEntry {
+  entity_name: string;
+  release: string;
+  developer: string;
+  platforms: string;
+  confidence: string; // "High" | "Medium" | "Low"
+}
+
+interface LimitationItem {
+  category: string;
+  description: string;
+}
+
+interface StructuredResearchData {
+  executive_summary: string;
+  requested_count: number;
+  verified_count: number;
+  uncertain_count: number;
+  entities: ResearchEntity[];
+  comparison_matrix: ComparisonEntry[];
+  limitations: LimitationItem[];
+}
+
 interface ResearchOutput {
   query: string;
   mode: string;
@@ -41,6 +94,7 @@ interface ResearchOutput {
   citations: string[];
   stopped_early: boolean;
   template_hint?: string;
+  structured_data?: StructuredResearchData;
 }
 
 interface HapticEvent {
@@ -112,6 +166,12 @@ export default function App() {
   const [copyFeedback, setCopyFeedback] = createSignal(false);
   const [exportStatus, setExportStatus] = createSignal<string | null>(null);
   const [exportHtmlStatus, setExportHtmlStatus] = createSignal<string | null>(null);
+  const [displayMode, setDisplayMode] = createSignal<"evidence" | "markdown">("evidence");
+  const [expandedClaims, setExpandedClaims] = createSignal<Record<number, boolean>>({});
+
+  const toggleClaimExpansion = (rank: number) => {
+    setExpandedClaims((prev) => ({ ...prev, [rank]: !prev[rank] }));
+  };
 
   // Pipeline Execution Logs & Diagnostics
   const [terminalLogs, setTerminalLogs] = createSignal<LogEntry[]>([]);
@@ -1041,6 +1101,34 @@ export default function App() {
 
         {/* RIGHT CONTROLS */}
         <div class="flex items-center gap-2">
+          {/* Evidence View vs Report Toggle */}
+          <Show when={activeResult()?.structured_data}>
+            <div class="flex items-center bg-[#181C20] rounded-lg p-0.5 border border-[#252B30]">
+              <button
+                onClick={() => setDisplayMode("evidence")}
+                class={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1.5 ${
+                  displayMode() === "evidence"
+                    ? "bg-[#252B30] text-[#38D9C0]"
+                    : "text-[#929DA6] hover:text-[#E8EDF0]"
+                }`}
+                title="Evidence-First structured view"
+              >
+                <span>⚡ Evidence</span>
+              </button>
+              <button
+                onClick={() => setDisplayMode("markdown")}
+                class={`px-2.5 py-1 rounded text-[11px] font-medium transition flex items-center gap-1.5 ${
+                  displayMode() === "markdown"
+                    ? "bg-[#252B30] text-[#E8EDF0]"
+                    : "text-[#929DA6] hover:text-[#E8EDF0]"
+                }`}
+                title="Traditional synthesized report view"
+              >
+                <span>📄 Report</span>
+              </button>
+            </div>
+          </Show>
+
           {/* Sources Count Badge button (Clickable to switch tab) */}
           <Show when={activeResult()?.citations.length}>
             <button
@@ -1250,7 +1338,7 @@ export default function App() {
               <span class="flex items-center gap-1.5 text-[#34D399]">
                 <span class="w-1.5 h-1.5 rounded-full bg-[#34D399] animate-pulse"></span> Engine Ready
               </span>
-              <span class="font-mono text-[#64707D]">v2.1.5</span>
+              <span class="font-mono text-[#64707D]">v2.2.0</span>
             </div>
           </aside>
         </Show>
@@ -1639,7 +1727,10 @@ export default function App() {
                     </Show>
                   }
                 >
-                  <Switch
+                  <Show
+                    when={activeResult()?.structured_data && displayMode() === "evidence"}
+                    fallback={
+                      <Switch
                     fallback={
                       <article
                         class="prose-workspace"
@@ -1805,7 +1896,267 @@ export default function App() {
                         </div>
                       </div>
                     </Match>
-                  </Switch>
+                      </Switch>
+                    }
+                  >
+                    {/* EVIDENCE-FIRST PRESENTATION WORKSPACE */}
+                    <div class="evidence-workspace">
+                      {/* 1. EXECUTIVE SUMMARY & METRICS BAR */}
+                      <div class="flex flex-col gap-3.5">
+                        <div class="text-sm md:text-base text-[#D3DBE0] leading-relaxed font-normal bg-[#121518] p-4 rounded-xl border border-[#252B30]">
+                          {activeResult()!.structured_data!.executive_summary}
+                        </div>
+
+                        <div class="metrics-bar-container">
+                          <div class="metric-pill metric-pill-requested">
+                            <span>🎯 Target Quota:</span>
+                            <span class="font-bold">{activeResult()!.structured_data!.requested_count}</span>
+                          </div>
+                          <div class="metric-pill metric-pill-verified">
+                            <span>🟢 Verified:</span>
+                            <span class="font-bold">{activeResult()!.structured_data!.verified_count}</span>
+                          </div>
+                          <div class="metric-pill metric-pill-uncertain">
+                            <span>🟡 In-Development:</span>
+                            <span class="font-bold">{activeResult()!.structured_data!.uncertain_count}</span>
+                          </div>
+                          <div class="metric-pill metric-pill-sources">
+                            <span>📚 Sources:</span>
+                            <span class="font-bold">{activeResult()?.citations.length || 0}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. RESULTS SECTION (REAL ENTITIES ONLY) */}
+                      <div class="flex flex-col gap-4">
+                        <div class="flex items-center justify-between">
+                          <h2 class="text-sm font-semibold uppercase tracking-wider text-[#929DA6] flex items-center gap-2">
+                            <span>Identified Entities</span>
+                            <span class="px-2 py-0.5 rounded-full bg-[#181C20] border border-[#252B30] text-[11px] font-mono text-[#38D9C0]">
+                              {activeResult()!.structured_data!.entities.length}
+                            </span>
+                          </h2>
+                          <span class="text-[11px] text-[#64707D] font-mono">Evidence-First Ranking</span>
+                        </div>
+
+                        <div class="flex flex-col gap-3.5">
+                          <For each={activeResult()!.structured_data!.entities}>
+                            {(entity) => (
+                              <div class="entity-card-v2">
+                                <div class="entity-header">
+                                  <div class="entity-rank-badge">
+                                    {entity.rank < 10 ? `0${entity.rank}` : entity.rank}
+                                  </div>
+                                  <div class="entity-title-group">
+                                    <div class="flex items-center gap-2 flex-wrap">
+                                      <h3>{entity.name}</h3>
+                                      <span
+                                        class={`px-2 py-0.5 rounded text-[11px] font-medium ${
+                                          entity.status.toLowerCase().includes("confirm")
+                                            ? "badge-confirmed"
+                                            : entity.status.toLowerCase().includes("roadmap")
+                                            ? "badge-roadmap"
+                                            : "badge-projected"
+                                        }`}
+                                      >
+                                        {entity.status}
+                                      </span>
+                                    </div>
+                                    <div class="entity-subtitle">
+                                      {entity.developer} • {entity.category}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Attributes Grid */}
+                                <div class="entity-attr-grid">
+                                  <div class="attr-item">
+                                    <span class="attr-label">Creator / Studio</span>
+                                    <span class="attr-value" title={entity.developer}>{entity.developer}</span>
+                                  </div>
+                                  <div class="attr-item">
+                                    <span class="attr-label">Expected Target</span>
+                                    <span class="attr-value" title={entity.expected_release}>{entity.expected_release}</span>
+                                  </div>
+                                  <div class="attr-item">
+                                    <span class="attr-label">Platforms / Targets</span>
+                                    <span class="attr-value" title={entity.platforms}>{entity.platforms}</span>
+                                  </div>
+                                  <div class="attr-item">
+                                    <span class="attr-label">Category / Genre</span>
+                                    <span class="attr-value" title={entity.category}>{entity.category}</span>
+                                  </div>
+                                </div>
+
+                                {/* Why it qualifies */}
+                                <div class="entity-why-box">
+                                  <strong class="text-[#38D9C0]">Why it qualifies:</strong> {entity.why_qualifies}
+                                </div>
+
+                                {/* Entity Caveat if present */}
+                                <Show when={entity.limitations}>
+                                  <div class="entity-caveat-box">
+                                    <strong>⚠️ Note / Caveat:</strong> {entity.limitations}
+                                  </div>
+                                </Show>
+
+                                {/* Claim-Level Evidence Accordion */}
+                                <Show when={entity.claims && entity.claims.length > 0}>
+                                  <div class="flex flex-col gap-2 pt-2 border-t border-[#252B30]/60">
+                                    <button
+                                      onClick={() => toggleClaimExpansion(entity.rank)}
+                                      class="flex items-center justify-between text-xs text-[#929DA6] hover:text-[#38D9C0] transition py-1"
+                                    >
+                                      <span class="font-medium flex items-center gap-1.5">
+                                        <span>Verified Claims & Sources</span>
+                                        <span class="px-1.5 py-0.2 rounded bg-[#181C20] border border-[#252B30] text-[10px] font-mono text-[#38D9C0]">
+                                          {entity.claims.length}
+                                        </span>
+                                      </span>
+                                      <span class="font-mono text-[11px]">
+                                        {expandedClaims()[entity.rank] ? "Hide Evidence ▴" : "Show Evidence ▾"}
+                                      </span>
+                                    </button>
+
+                                    <Show when={expandedClaims()[entity.rank]}>
+                                      <div class="flex flex-col gap-2.5 pt-1">
+                                        <For each={entity.claims}>
+                                          {(cl) => (
+                                            <div class="claim-card">
+                                              <div class="flex items-center justify-between gap-2">
+                                                <span class="text-xs font-semibold text-[#E8EDF0] leading-snug">
+                                                  {cl.claim}
+                                                </span>
+                                                <span
+                                                  class={`px-2 py-0.5 rounded text-[10px] font-mono font-medium shrink-0 ${
+                                                    cl.status.toLowerCase().includes("verif")
+                                                      ? "badge-claim-verified"
+                                                      : cl.status.toLowerCase().includes("corroborat")
+                                                      ? "badge-claim-corroborated"
+                                                      : cl.status.toLowerCase().includes("conflict")
+                                                      ? "badge-claim-conflicting"
+                                                      : "badge-claim-uncertain"
+                                                  }`}
+                                                >
+                                                  {cl.status}
+                                                </span>
+                                              </div>
+
+                                              <Show when={cl.explanation}>
+                                                <p class="text-[11px] text-[#929DA6] leading-relaxed m-0">
+                                                  {cl.explanation}
+                                                </p>
+                                              </Show>
+
+                                              <Show when={cl.evidence && cl.evidence.length > 0}>
+                                                <div class="flex flex-col gap-1.5 mt-1">
+                                                  <For each={cl.evidence}>
+                                                    {(ev) => (
+                                                      <div class="evidence-quote-box flex flex-col gap-1">
+                                                        <div>"{ev.excerpt}"</div>
+                                                        <div class="flex items-center justify-between pt-1 text-[10px] text-[#64707D]">
+                                                          <span>[{ev.source_type}] {ev.publisher}</span>
+                                                          <Show when={ev.url}>
+                                                            <a
+                                                              href={ev.url}
+                                                              target="_blank"
+                                                              class="text-[#38D9C0] hover:underline flex items-center gap-0.5"
+                                                            >
+                                                              <span>Source</span>
+                                                              <span>↗</span>
+                                                            </a>
+                                                          </Show>
+                                                        </div>
+                                                      </div>
+                                                    )}
+                                                  </For>
+                                                </div>
+                                              </Show>
+                                            </div>
+                                          )}
+                                        </For>
+                                      </div>
+                                    </Show>
+                                  </div>
+                                </Show>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </div>
+
+                      {/* 3. COMPARISON MATRIX TABLE */}
+                      <Show when={activeResult()!.structured_data!.comparison_matrix && activeResult()!.structured_data!.comparison_matrix.length > 0}>
+                        <div class="flex flex-col gap-3">
+                          <h2 class="text-sm font-semibold uppercase tracking-wider text-[#929DA6]">
+                            Comparative Matrix
+                          </h2>
+                          <div class="comparison-table-wrap">
+                            <table class="comparison-table">
+                              <thead>
+                                <tr>
+                                  <th>#</th>
+                                  <th>Candidate</th>
+                                  <th>Release Target</th>
+                                  <th>Developer / Studio</th>
+                                  <th>Platforms / Targets</th>
+                                  <th>Confidence</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                <For each={activeResult()!.structured_data!.comparison_matrix}>
+                                  {(row, idx) => (
+                                    <tr>
+                                      <td class="font-mono text-[#64707D]">{idx() + 1}</td>
+                                      <td class="font-medium text-[#E8EDF0]">{row.entity_name}</td>
+                                      <td>{row.release}</td>
+                                      <td>{row.developer}</td>
+                                      <td>{row.platforms}</td>
+                                      <td>
+                                        <span
+                                          class={`px-2 py-0.5 rounded text-[10px] font-mono font-medium ${
+                                            row.confidence.toLowerCase().includes("high")
+                                              ? "badge-confirmed"
+                                              : row.confidence.toLowerCase().includes("med")
+                                              ? "badge-roadmap"
+                                              : "badge-projected"
+                                          }`}
+                                        >
+                                          {row.confidence}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </For>
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </Show>
+
+                      {/* 4. RESEARCH LIMITATIONS & GAPS */}
+                      <Show when={activeResult()!.structured_data!.limitations && activeResult()!.structured_data!.limitations.length > 0}>
+                        <div class="limitations-box">
+                          <h4>
+                            <svg class="w-4 h-4 text-[#FBBF24]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <span>Research Limitations & Verification Caveats</span>
+                          </h4>
+                          <div class="limitations-list">
+                            <For each={activeResult()!.structured_data!.limitations}>
+                              {(lim) => (
+                                <div class="limitation-item">
+                                  <span class="limitation-tag">{lim.category}</span>
+                                  <span>{lim.description}</span>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
                 </Show>
               </Show>
 

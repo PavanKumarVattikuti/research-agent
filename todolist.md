@@ -132,11 +132,11 @@
 | # | Step | Status | Agent |
 |---|------|--------|-------|
 | 73 | Define Evidence-First Data Contract & Publisher Blacklist in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
-| 74 | Implement Entity Extraction, Canonical Deduplication & Claim Verification in `src-tauri/src/pipeline.rs` | 🔄 In Progress | Antigravity |
-| 75 | Build Evidence-First Presentation Workspace (Metrics, Cards, Claims, Matrix, Limitations) in `src/App.tsx` & `src/App.css` | ⬜ Todo | Antigravity |
-| 76 | Add 5-Domain Verification Fixtures (Games, AI, Chips, Space, Languages) & Test Suite in `src-tauri/src/pipeline.rs` | ⬜ Todo | Antigravity |
-| 77 | Align version to `2.2.0` across Cargo, Tauri, package.json, App.tsx, README, todolist & generate release notes | ⬜ Todo | Antigravity |
-| 78 | Full verification: `cargo test --lib`, `tsc`, `npm run build`, and walkthrough documentation | ⬜ Todo | Antigravity |
+| 74 | Implement Entity Extraction, Canonical Deduplication & Claim Verification in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+| 75 | Build Evidence-First Presentation Workspace (Metrics, Cards, Claims, Matrix, Limitations) in `src/App.tsx` & `src/App.css` | ✅ Done | Antigravity |
+| 76 | Add 5-Domain Verification Fixtures (Games, AI, Chips, Space, Languages) & Test Suite in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+| 77 | Align version to `2.2.0` across Cargo, Tauri, package.json, App.tsx, README, todolist & generate release notes | ✅ Done | Antigravity |
+| 78 | Full verification: `cargo test --lib`, `tsc`, `npm run build`, and walkthrough documentation | ✅ Done | Antigravity |
 
 ---
 

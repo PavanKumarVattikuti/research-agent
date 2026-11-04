@@ -1,9 +1,30 @@
-# 🔬 Research Agent (v2.1.5)
+# 🔬 Research Agent (v2.2.0)
 
 > **"Proof Over Hallucination."**  
 > The Open-Source, Offline-First Perplexity Alternative.
 
-Research Agent is a lightweight, memory-efficient native desktop application built with **Rust**, **Tauri v2**, and **SolidJS**. It eliminates LLM overthinking by enforcing the **Single Micro-Task Principle**: constraint keywords are decomposed and verified independently in atomic micro-prompts, with iterative constraint validation, multi-source evidence cross-referencing, and intelligent pre-templated output layouts.
+Research Agent is a lightweight, memory-efficient native desktop application built with **Rust**, **Tauri v2**, and **SolidJS**. It eliminates LLM hallucinations and overthinking through an **Evidence-First Research Architecture**: entities are extracted as distinct verifiable subjects (never substituted with publisher websites or news aggregators), duplicates are canonically merged across Roman numerals and naming variants, claims are verified at the atomic level against primary and secondary sources, and output is presented via honest metric cards and structured comparative matrices.
+
+---
+
+## ✨ What's New in v2.2.0 (Evidence-First Architecture)
+
+- **🏆 Evidence-First Research Workspace**:
+  - Direct 2–3 sentence executive summary upfront without repetitive filler paragraphs.
+  - Interactive **Metrics Bar**: Target Quota requested, Confirmed milestones, In-Development projections, and total sources checked.
+  - Real **Entity Cards**: Only actual products, titles, missions, models, or languages are extracted (never news aggregators or calendars).
+  - Multi-attribute grids: Developer/Studio, Category/Genre, Expected Release, and Target Platforms.
+  - *"Why it qualifies"* concise rationale backed by explicit citations.
+  - Expandable **Claim-Level Evidence Accordion**: Each claim is tagged as `Verified` (primary proof), `Corroborated` (independent outlets), `Uncertain` (rumor/estimate), or `Conflicting` (disputed), complete with exact quoted excerpts and publisher links.
+  - Side-by-side **Comparative Matrix** with confidence ratings.
+  - Honest **Research Limitations & Gaps**: Explicit callouts when public roadmap data is unconfirmed or fails to meet the requested quota (no fake entries invented to fill counts).
+  - Single-click **[⚡ Evidence] / [📄 Report]** view toggle.
+- **🛡️ Publisher Blacklist & Anti-Website Filter**:
+  - Automatically filters out publisher sites (GamesRadar, SearXNG, IGN, CBS Sports, Forbes, Bloomberg, TechCrunch, Tom's Hardware, etc.) from candidate entities.
+- **🔗 Canonical Deduplication Across Roman Numerals**:
+  - Normalizes entities across naming variations and Roman numerals (e.g., *The Witcher 4* and *The Witcher IV*, *Artemis III* and *The Artemis 3* merge into a single canonical entry).
+- **📝 Clean 6-Section Non-Repetitive Report Generation**:
+  - Generates zero-redundancy reports covering Overview, Results, Evidence, Comparison, Strategic Analysis, and Limitations.
 
 ---
 
@@ -66,8 +87,8 @@ npm run tauri build
 
 Compiled bundles are output to:
 - Standalone `.exe`: `src-tauri/target/release/research-agent.exe`
-- NSIS installer: `src-tauri/target/release/bundle/nsis/Research-Agent_2.1.5_x64-setup.exe`
-- MSI installer: `src-tauri/target/release/bundle/msi/Research-Agent_2.1.5_x64_en-US.msi`
+- NSIS installer: `src-tauri/target/release/bundle/nsis/Research-Agent_2.2.0_x64-setup.exe`
+- MSI installer: `src-tauri/target/release/bundle/msi/Research-Agent_2.2.0_x64_en-US.msi`
 
 ---
 
