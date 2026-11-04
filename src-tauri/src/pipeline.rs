@@ -55,6 +55,100 @@ pub struct CandidateAnswer {
     pub sources: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClaimEvidence {
+    #[serde(default)]
+    pub source_id: usize,
+    #[serde(default)]
+    pub source_title: String,
+    #[serde(default)]
+    pub publisher: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub source_type: String, // "Primary" | "Secondary" | "Community"
+    #[serde(default)]
+    pub publication_date: Option<String>,
+    #[serde(default)]
+    pub excerpt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct EntityClaim {
+    #[serde(default)]
+    pub claim: String, // e.g. "Scheduled for release in 2028"
+    #[serde(default)]
+    pub status: String, // "Verified" | "Corroborated" | "Uncertain" | "Conflicting"
+    #[serde(default)]
+    pub explanation: String,
+    #[serde(default)]
+    pub evidence: Vec<ClaimEvidence>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ResearchEntity {
+    #[serde(default)]
+    pub rank: usize,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub category: String, // e.g. "Action RPG"
+    #[serde(default)]
+    pub developer: String, // e.g. "CD Projekt Red"
+    #[serde(default)]
+    pub platforms: String, // e.g. "PC, PS5, Xbox Series X/S"
+    #[serde(default)]
+    pub expected_release: String, // e.g. "2028 (Projected)"
+    #[serde(default)]
+    pub status: String, // "Confirmed" | "Roadmap Target" | "Uncertain"
+    #[serde(default)]
+    pub why_qualifies: String, // 1-2 sentence explanation
+    #[serde(default)]
+    pub claims: Vec<EntityClaim>,
+    #[serde(default)]
+    pub limitations: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ComparisonEntry {
+    #[serde(default)]
+    pub entity_name: String,
+    #[serde(default)]
+    pub release: String,
+    #[serde(default)]
+    pub developer: String,
+    #[serde(default)]
+    pub platforms: String,
+    #[serde(default)]
+    pub confidence: String, // "High" | "Medium" | "Low"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LimitationItem {
+    #[serde(default)]
+    pub category: String, // "Unconfirmed Date" | "Conflicting Reports" | "Missing Data"
+    #[serde(default)]
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StructuredResearchData {
+    #[serde(default)]
+    pub executive_summary: String, // 2-3 sentences direct answer
+    #[serde(default)]
+    pub requested_count: usize,
+    #[serde(default)]
+    pub verified_count: usize,
+    #[serde(default)]
+    pub uncertain_count: usize,
+    #[serde(default)]
+    pub entities: Vec<ResearchEntity>,
+    #[serde(default)]
+    pub comparison_matrix: Vec<ComparisonEntry>,
+    #[serde(default)]
+    pub limitations: Vec<LimitationItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchOutput {
     pub query: String,
@@ -66,6 +160,8 @@ pub struct ResearchOutput {
     pub citations: Vec<String>,
     pub stopped_early: bool,
     pub template_hint: String,
+    #[serde(default)]
+    pub structured_data: Option<StructuredResearchData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,11 +198,59 @@ struct QuerySynthesis {
     #[serde(default)]
     pub research_goal: String,
     #[serde(default)]
+    pub target_entity_type: String, // e.g. "Video Game", "AI Foundation Model", "Hardware Chip"
+    #[serde(default)]
+    pub requested_count: usize, // e.g. 10
+    #[serde(default)]
     pub hard_constraints: Vec<String>,
     #[serde(default)]
     pub search_keywords: Vec<String>,
     #[serde(default)]
     pub ir_queries: Vec<String>,
+}
+
+/// Blacklist of publisher websites, news aggregators, and blog domains that must NEVER be extracted as entities.
+pub fn is_disallowed_entity_name(name: &str) -> bool {
+    let lower = name.trim().to_lowercase();
+    if lower.is_empty() {
+        return true;
+    }
+    let blacklisted = [
+        "searxng", "gamesradar", "ign", "cbs sports", "forbes", "bloomberg",
+        "youtube", "reddit", "twitter", "x.com", "hacker news", "techcrunch",
+        "the verge", "polygon", "kotaku", "digital health news", "wired",
+        "reuters", "associated press", "release calendar", "updates today",
+        "top 10 new", "latest releases & timeline", "startrise", "testingcatalog",
+        "pc gamer", "tom's hardware", "eurogamer", "game spot", "gamespot",
+        "android authority", "google news", "bing news", "duckduckgo", "wikipedia"
+    ];
+    for b in &blacklisted {
+        if lower == *b || lower.starts_with(&format!("{} ", b)) || lower.ends_with(&format!(" {}", b)) || lower.contains(b) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Parse explicit requested count from query (e.g. "top 10" -> 10, "5 best" -> 5).
+pub fn extract_requested_count(query: &str) -> Option<usize> {
+    let q_lower = query.to_lowercase();
+    let parts: Vec<&str> = q_lower.split_whitespace().collect();
+    for (i, p) in parts.iter().enumerate() {
+        if (*p == "top" || *p == "best" || *p == "first" || *p == "latest") && i + 1 < parts.len() {
+            if let Ok(num) = parts[i + 1].parse::<usize>() {
+                if num > 0 && num <= 50 {
+                    return Some(num);
+                }
+            }
+        }
+        if let Ok(num) = p.parse::<usize>() {
+            if num > 0 && num <= 50 && (q_lower.contains("top") || q_lower.contains("best") || q_lower.contains("upcoming") || q_lower.contains("games") || q_lower.contains("models")) {
+                return Some(num);
+            }
+        }
+    }
+    None
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

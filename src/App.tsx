@@ -706,6 +706,18 @@ export default function App() {
       justify-content: space-between;
       align-items: center;
     }
+    @media print {
+      body { background: #FFFFFF !important; color: #111111 !important; padding: 0 !important; }
+      .container { max-width: 100% !important; margin: 0 !important; }
+      header { border-color: #DDDDDD !important; }
+      h1, .content h2, .content strong { color: #000000 !important; }
+      .meta, .content p, .content td, .sources-list { color: #333333 !important; }
+      .content table { border-color: #DDDDDD !important; background: #FFFFFF !important; }
+      .content th { background: #F5F5F5 !important; color: #555555 !important; }
+      .content td, .content th { border-color: #EEEEEE !important; }
+      .badge { border-color: #38D9C0 !important; }
+      footer { border-color: #EEEEEE !important; color: #888888 !important; }
+    }
   </style>
 </head>
 <body>
@@ -1896,6 +1908,16 @@ export default function App() {
                       <Show when={exportHtmlStatus()} fallback={<span>.HTML</span>}>
                         {(status) => <span class="text-[#34D399] font-medium">{status()}</span>}
                       </Show>
+                    </button>
+                    <button
+                      onClick={() => window.print()}
+                      class="px-2.5 py-1 rounded-lg bg-[#181C20] hover:bg-[#1F2429] hover:text-[#E8EDF0] transition flex items-center gap-1.5 border border-[#252B30]"
+                      title="Print or Save as PDF"
+                    >
+                      <svg class="w-3.5 h-3.5 text-[#38D9C0]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                      </svg>
+                      <span>.PDF</span>
                     </button>
                     <button
                       onClick={copyReport}

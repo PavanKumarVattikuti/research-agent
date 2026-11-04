@@ -400,3 +400,107 @@ body {
 .flashcard.flipped .flashcard-inner {
   transform: rotateY(180deg) !important;
 }
+
+/* -------------------------------------------------------------------------- */
+/* PRINT & PDF EXPORT STYLES                                                  */
+/* -------------------------------------------------------------------------- */
+@media print {
+  @page {
+    margin: 15mm 20mm;
+    size: auto;
+  }
+
+  body {
+    background: #FFFFFF !important;
+    color: #1A1A1A !important;
+    overflow: visible !important;
+    font-size: 11pt !important;
+    line-height: 1.6 !important;
+  }
+
+  /* Hide app navigation chrome, sidebars, follow-up input bar, modals */
+  header,
+  aside,
+  button,
+  input,
+  textarea,
+  .print-hide {
+    display: none !important;
+  }
+
+  /* Make report container full width with no scrollbars */
+  main,
+  .h-screen,
+  .overflow-y-auto {
+    height: auto !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* Clean up cards and tables for crisp print */
+  .ranked-card,
+  .news-card,
+  article {
+    background: #FFFFFF !important;
+    border: 1px solid #D0D5DD !important;
+    color: #1A1A1A !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 12pt !important;
+    padding: 12pt !important;
+  }
+
+  .ranked-card-num {
+    background: #F2F4F7 !important;
+    color: #0E766E !important;
+    border: 1px solid #D0D5DD !important;
+  }
+
+  /* Prose typography print adjustments */
+  .prose-obsidian h1,
+  .prose-obsidian h2,
+  .prose-obsidian h3 {
+    color: #0F172A !important;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .prose-obsidian h2 {
+    border-bottom: 1px solid #E2E8F0 !important;
+  }
+
+  .prose-obsidian p,
+  .prose-obsidian li {
+    color: #334155 !important;
+  }
+
+  .prose-obsidian strong {
+    color: #0F172A !important;
+  }
+
+  .prose-obsidian table {
+    border: 1px solid #D0D5DD !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .prose-obsidian th {
+    background: #F8FAFC !important;
+    color: #475569 !important;
+    border-bottom: 1px solid #CBD5E1 !important;
+  }
+
+  .prose-obsidian td {
+    border-bottom: 1px solid #E2E8F0 !important;
+    color: #334155 !important;
+  }
+
+  a {
+    color: #0E766E !important;
+    text-decoration: underline !important;
+  }
+}

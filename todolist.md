@@ -120,6 +120,9 @@
 | 67 | Standalone styled HTML export with dark theme, citations & clean markdown/clipboard in `src/App.tsx` & `src-tauri/src/lib.rs` | ✅ Done | Antigravity |
 | 68 | Normalize template routing synonyms & add auto-detection table fallback for cards in `src/App.tsx` & `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
 | 69 | Upload updated production binary, NSIS setup installer & MSI bundle to GitHub Release v2.1.5 | ✅ Done | Antigravity |
+| 70 | Implement @media print stylesheets and clean document typography in `src/App.css` | ✅ Done | Antigravity |
+| 71 | Add Print / Save to PDF (`.PDF`) button in toolbar and HTML export in `src/App.tsx` | ✅ Done | Antigravity |
+| 72 | Verify frontend build, compile release binary, package installer & launch app | ✅ Done | Antigravity |
 
 ---
 
