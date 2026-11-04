@@ -329,6 +329,37 @@ struct RawEvidenceExtraction {
     limitations_summary: Vec<RawExtractedLimitation>,
 }
 
+pub fn canonical_entity_key(name: &str) -> String {
+    let lower = name.trim().to_lowercase();
+    let mut cleaned = lower;
+    if cleaned.starts_with("the ") {
+        cleaned = cleaned[4..].to_string();
+    }
+    // Remove punctuation characters
+    cleaned = cleaned.replace([':', '-', ',', '.', '\'', '"', '(', ')'], " ");
+
+    // Normalize Roman numerals at token level for consistent deduplication
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+    let normalized_tokens: Vec<String> = tokens
+        .into_iter()
+        .map(|t| match t {
+            "i" | "1" => "1".to_string(),
+            "ii" | "2" => "2".to_string(),
+            "iii" | "3" => "3".to_string(),
+            "iv" | "4" => "4".to_string(),
+            "v" | "5" => "5".to_string(),
+            "vi" | "6" => "6".to_string(),
+            "vii" | "7" => "7".to_string(),
+            "viii" | "8" => "8".to_string(),
+            "ix" | "9" => "9".to_string(),
+            "x" | "10" => "10".to_string(),
+            other => other.to_string(),
+        })
+        .collect();
+
+    normalized_tokens.join(" ")
+}
+
 pub fn parse_and_structure_evidence(
     raw_json: &str,
     query: &str,
@@ -365,14 +396,8 @@ pub fn parse_and_structure_evidence(
             continue;
         }
 
-        // 2. Canonical normalization:
-        let norm_key = trimmed_name
-            .to_lowercase()
-            .replace("the ", "")
-            .replace(":", "")
-            .replace("-", "")
-            .replace("  ", " ");
-        let norm_key = norm_key.trim().to_string();
+        // 2. Canonical normalization with Roman numeral alignment
+        let norm_key = canonical_entity_key(trimmed_name);
 
         if seen_canonical_names.contains(&norm_key) {
             continue;
@@ -1717,5 +1742,425 @@ mod tests {
         assert!(!check.satisfied);
         assert_eq!(check.missing.len(), 1);
         assert!(check.refined_query.is_some());
+    }
+
+    fn mock_evidence() -> Vec<crate::search::SearchResult> {
+        vec![
+            crate::search::SearchResult {
+                title: "Official Studio Disclosure: Next Saga Roadmap".into(),
+                snippet: "CD Projekt Red confirms development roadmap targeting 2028 for the next saga.".into(),
+                url: "https://cdprojektred.com/news/roadmap".into(),
+                source: Some("Official Studio Disclosures".into()),
+            },
+            crate::search::SearchResult {
+                title: "Industry Analysis & Tech Report".into(),
+                snippet: "Crystal Dynamics reports next-generation adventure titles targeting 2028.".into(),
+                url: "https://trustedtech.org/reports/2028".into(),
+                source: Some("Tech Analysis".into()),
+            },
+            crate::search::SearchResult {
+                title: "Frontier Foundation Model Announcement".into(),
+                snippet: "Anthropic details Claude 3.7 Sonnet architecture and milestone targets.".into(),
+                url: "https://anthropic.com/news/claude-3-7".into(),
+                source: Some("Official Publisher".into()),
+            },
+        ]
+    }
+
+    #[test]
+    fn test_domain_iteration_1_video_games_2028() {
+        let raw_llm_json = r#"{
+            "executive_summary": "Confirmed release roadmaps for 2028 remain sparse across major studios.",
+            "entities": [
+                {
+                    "name": "The Witcher 4",
+                    "category": "Action RPG",
+                    "developer": "CD Projekt Red",
+                    "platforms": "PC, PS5, Xbox Series X",
+                    "expected_release": "2028 (Projected)",
+                    "status": "Confirmed",
+                    "why_qualifies": "Officially confirmed in production with full team allocated.",
+                    "claims": [
+                        {
+                            "claim": "Development is active and targeted around 2028",
+                            "status": "Verified",
+                            "explanation": "Primary studio report confirmed team scaling.",
+                            "source_ids": [1]
+                        }
+                    ]
+                },
+                {
+                    "name": "The Witcher IV",
+                    "category": "Action RPG",
+                    "developer": "CD Projekt",
+                    "platforms": "PC",
+                    "expected_release": "2028",
+                    "status": "Confirmed",
+                    "why_qualifies": "Duplicate mention of Polaris saga."
+                },
+                {
+                    "name": "GamesRadar Release Calendar",
+                    "category": "Website",
+                    "developer": "Future Publishing",
+                    "platforms": "Web",
+                    "expected_release": "Ongoing",
+                    "status": "Projected Target",
+                    "why_qualifies": "Aggregator calendar."
+                },
+                {
+                    "name": "SearXNG Updates",
+                    "category": "Search",
+                    "developer": "SearXNG Community",
+                    "platforms": "Web",
+                    "expected_release": "Current",
+                    "status": "Projected Target",
+                    "why_qualifies": "Search engine."
+                },
+                {
+                    "name": "Tomb Raider Next",
+                    "category": "Action Adventure",
+                    "developer": "Crystal Dynamics",
+                    "platforms": "PC, PS5",
+                    "expected_release": "2028 (Projected)",
+                    "status": "Roadmap Target",
+                    "why_qualifies": "Amazon Games co-publishing roadmap.",
+                    "claims": [
+                        {
+                            "claim": "Next major entry in pre-production",
+                            "status": "Corroborated",
+                            "explanation": "Industry disclosures confirm multi-year timeline.",
+                            "source_ids": [2]
+                        }
+                    ]
+                }
+            ],
+            "limitations_summary": [
+                {
+                    "category": "Unconfirmed Dates",
+                    "description": "Studio disclosures beyond 2027 are rare and subject to shifts."
+                }
+            ]
+        }"#;
+
+        let evidence = mock_evidence();
+        let (structured, candidates, report) = parse_and_structure_evidence(
+            raw_llm_json,
+            "Top 10 Upcoming Games in 2028",
+            "Video Games",
+            10,
+            &evidence,
+            "ranked_list",
+            12,
+        );
+
+        // 1. Blacklist check: GamesRadar & SearXNG MUST be rejected
+        assert!(!structured.entities.iter().any(|e| e.name.contains("GamesRadar")));
+        assert!(!structured.entities.iter().any(|e| e.name.contains("SearXNG")));
+
+        // 2. Canonical deduplication: "The Witcher IV" must be merged with "The Witcher 4"
+        let witcher_count = structured.entities.iter().filter(|e| e.name.to_lowercase().contains("witcher")).count();
+        assert_eq!(witcher_count, 1, "Duplicate Witcher entity was not merged!");
+
+        // 3. Exactly 2 valid entities remain
+        assert_eq!(structured.entities.len(), 2);
+        assert_eq!(structured.requested_count, 10);
+        assert_eq!(structured.verified_count, 1);
+        assert_eq!(structured.uncertain_count, 1);
+
+        // 4. Target Quota Discrepancy limitation was honestly added
+        let has_quota_limitation = structured.limitations.iter().any(|l| l.category == "Target Quota Discrepancy");
+        assert!(has_quota_limitation, "Missing Target Quota Discrepancy limitation!");
+
+        // 5. Comparison matrix matches entities
+        assert_eq!(structured.comparison_matrix.len(), 2);
+
+        // 6. Report has all 6 sections and no disallowed entities
+        assert!(report.contains("## Executive Summary"));
+        assert!(report.contains("## Results"));
+        assert!(report.contains("## Evidence & Verification"));
+        assert!(report.contains("## Comparison Matrix"));
+        assert!(report.contains("## Analysis & Strategic Insights"));
+        assert!(report.contains("## Research Limitations & Information Gaps"));
+        assert!(!report.contains("GamesRadar"));
+        assert!(!report.contains("SearXNG"));
+
+        assert_eq!(candidates.len(), 2);
+    }
+
+    #[test]
+    fn test_domain_iteration_2_frontier_ai_models() {
+        let raw_llm_json = r#"{
+            "executive_summary": "Frontier AI lab roadmaps highlight models focused on native reasoning and multimodal agents.",
+            "entities": [
+                {
+                    "name": "Claude 3.7 Sonnet",
+                    "category": "Hybrid Reasoning LLM",
+                    "developer": "Anthropic",
+                    "platforms": "API, Web",
+                    "expected_release": "Q4 2026",
+                    "status": "Confirmed",
+                    "why_qualifies": "Official hybrid reasoning architecture disclosure.",
+                    "claims": [
+                        {
+                            "claim": "Introduces variable reasoning tokens",
+                            "status": "Verified",
+                            "explanation": "Primary research blog disclosure",
+                            "source_ids": [3]
+                        }
+                    ]
+                },
+                {
+                    "name": "TechCrunch AI News",
+                    "category": "News Feed",
+                    "developer": "TechCrunch",
+                    "platforms": "Web",
+                    "expected_release": "Daily",
+                    "status": "Confirmed",
+                    "why_qualifies": "Media publication."
+                },
+                {
+                    "name": "GPT-5 Orion",
+                    "category": "Multimodal Foundation Model",
+                    "developer": "OpenAI",
+                    "platforms": "API, ChatGPT",
+                    "expected_release": "2026-2027",
+                    "status": "Roadmap Target",
+                    "why_qualifies": "Next generation frontier flagship model."
+                },
+                {
+                    "name": "Gemini 2.5 Pro",
+                    "category": "Long-Context Agentic LLM",
+                    "developer": "Google DeepMind",
+                    "platforms": "Google AI Studio, Vertex AI",
+                    "expected_release": "2026",
+                    "status": "Confirmed",
+                    "why_qualifies": "DeepMind ongoing generation release."
+                }
+            ],
+            "limitations_summary": []
+        }"#;
+
+        let evidence = mock_evidence();
+        let (structured, candidates, _report) = parse_and_structure_evidence(
+            raw_llm_json,
+            "Top 5 Frontier LLMs Q4 2026",
+            "AI Foundation Models",
+            5,
+            &evidence,
+            "ranked_list",
+            8,
+        );
+
+        // TechCrunch must be dropped by blacklist
+        assert!(!structured.entities.iter().any(|e| e.name.contains("TechCrunch")));
+        assert_eq!(structured.entities.len(), 3);
+        assert_eq!(structured.verified_count, 2);
+        assert_eq!(structured.uncertain_count, 1);
+        assert_eq!(candidates.len(), 3);
+    }
+
+    #[test]
+    fn test_domain_iteration_3_hardware_accelerators() {
+        let raw_llm_json = r#"{
+            "executive_summary": "Next-generation datacenter silicon emphasizes high-bandwidth memory and optical interconnects.",
+            "entities": [
+                {
+                    "name": "NVIDIA Rubin Ultra",
+                    "category": "Datacenter GPU",
+                    "developer": "NVIDIA",
+                    "platforms": "NVL72 Rack Scale",
+                    "expected_release": "2026-2027",
+                    "status": "Confirmed",
+                    "why_qualifies": "Officially revealed at GTC roadmap."
+                },
+                {
+                    "name": "Tom's Hardware Benchmark",
+                    "category": "Tech News",
+                    "developer": "Tom's Hardware",
+                    "platforms": "Web",
+                    "expected_release": "2026",
+                    "status": "Confirmed",
+                    "why_qualifies": "Review website."
+                },
+                {
+                    "name": "AMD Instinct MI400X",
+                    "category": "AI Accelerator",
+                    "developer": "AMD",
+                    "platforms": "Open Accelerator Module",
+                    "expected_release": "2026",
+                    "status": "Roadmap Target",
+                    "why_qualifies": "Next-gen CDNA 4 architecture."
+                },
+                {
+                    "name": "Google TPU v6e",
+                    "category": "Custom ASIC",
+                    "developer": "Google",
+                    "platforms": "Google Cloud",
+                    "expected_release": "Confirmed 2026",
+                    "status": "Confirmed",
+                    "why_qualifies": "Cloud TPU generation."
+                }
+            ],
+            "limitations_summary": []
+        }"#;
+
+        let evidence = mock_evidence();
+        let (structured, _, report) = parse_and_structure_evidence(
+            raw_llm_json,
+            "Next-Gen AI Hardware Accelerators",
+            "Hardware Processors",
+            3,
+            &evidence,
+            "comparison_table",
+            6,
+        );
+
+        // Tom's Hardware must be filtered out
+        assert!(!structured.entities.iter().any(|e| e.name.contains("Tom's Hardware")));
+        assert_eq!(structured.entities.len(), 3);
+        assert!(report.contains("NVIDIA Rubin Ultra"));
+        assert!(report.contains("AMD Instinct MI400X"));
+        assert!(report.contains("Google TPU v6e"));
+    }
+
+    #[test]
+    fn test_domain_iteration_4_space_missions() {
+        let raw_llm_json = r#"{
+            "executive_summary": "Deep space missions between 2027 and 2030 focus on crewed lunar landings and sample return.",
+            "entities": [
+                {
+                    "name": "Artemis III",
+                    "category": "Crewed Lunar Landing",
+                    "developer": "NASA / SpaceX",
+                    "platforms": "Starship HLS / SLS",
+                    "expected_release": "2027 (Projected)",
+                    "status": "Confirmed",
+                    "why_qualifies": "First crewed landing of the Artemis program."
+                },
+                {
+                    "name": "The Artemis 3",
+                    "category": "Crewed Mission",
+                    "developer": "NASA",
+                    "platforms": "SLS",
+                    "expected_release": "2027",
+                    "status": "Confirmed",
+                    "why_qualifies": "Duplicate phrasing."
+                },
+                {
+                    "name": "Chang'e 7",
+                    "category": "Robotic Lunar South Pole Explorer",
+                    "developer": "CNSA",
+                    "platforms": "Long March 5",
+                    "expected_release": "2026-2027",
+                    "status": "Confirmed",
+                    "why_qualifies": "Lunar resource detection mission."
+                },
+                {
+                    "name": "Blue Moon Mark 2",
+                    "category": "Human Landing System",
+                    "developer": "Blue Origin",
+                    "platforms": "New Glenn",
+                    "expected_release": "2029-2030",
+                    "status": "Roadmap Target",
+                    "why_qualifies": "Contracted Artemis V lander."
+                }
+            ],
+            "limitations_summary": []
+        }"#;
+
+        let evidence = mock_evidence();
+        let (structured, _, _) = parse_and_structure_evidence(
+            raw_llm_json,
+            "Upcoming Lunar Landings 2027-2030",
+            "Space Missions",
+            3,
+            &evidence,
+            "ranked_list",
+            7,
+        );
+
+        // Artemis 3 duplicate must be merged
+        let artemis_count = structured.entities.iter().filter(|e| e.name.to_lowercase().contains("artemis")).count();
+        assert_eq!(artemis_count, 1, "Duplicate Artemis mission was not merged!");
+        assert_eq!(structured.entities.len(), 3);
+    }
+
+    #[test]
+    fn test_domain_iteration_5_systems_programming_languages() {
+        let raw_llm_json = r#"{
+            "executive_summary": "Modern systems languages emphasize memory safety, zero-cost abstractions, and hardware acceleration.",
+            "entities": [
+                {
+                    "name": "Rust",
+                    "category": "Systems Language",
+                    "developer": "Rust Foundation",
+                    "platforms": "Cross-platform, Embedded, WebAssembly",
+                    "expected_release": "2024 Edition",
+                    "status": "Confirmed",
+                    "why_qualifies": "Industry standard for safe high-performance systems."
+                },
+                {
+                    "name": "Hacker News Discussions",
+                    "category": "Forum",
+                    "developer": "Y Combinator",
+                    "platforms": "Web",
+                    "expected_release": "Realtime",
+                    "status": "Confirmed",
+                    "why_qualifies": "Community forum."
+                },
+                {
+                    "name": "Mojo",
+                    "category": "AI Systems Language",
+                    "developer": "Modular",
+                    "platforms": "Linux, macOS, Heterogeneous Accelerators",
+                    "expected_release": "Mojo 2.0 Roadmap",
+                    "status": "Confirmed",
+                    "why_qualifies": "Combines Python syntax with systems performance."
+                },
+                {
+                    "name": "Zig",
+                    "category": "General Systems Language",
+                    "developer": "Zig Software Foundation",
+                    "platforms": "LLVM Target Archs",
+                    "expected_release": "1.0 Target",
+                    "status": "Roadmap Target",
+                    "why_qualifies": "Pragmatic C replacement with comptime."
+                },
+                {
+                    "name": "Triton",
+                    "category": "Kernel DSL",
+                    "developer": "OpenAI",
+                    "platforms": "NVIDIA / AMD GPUs",
+                    "expected_release": "Active Release",
+                    "status": "Confirmed",
+                    "why_qualifies": "Language and compiler for custom deep learning kernels."
+                }
+            ],
+            "limitations_summary": []
+        }"#;
+
+        let evidence = mock_evidence();
+        let (structured, candidates, report) = parse_and_structure_evidence(
+            raw_llm_json,
+            "Top Systems Languages for High Performance AI Engines",
+            "Programming Languages",
+            4,
+            &evidence,
+            "ranked_list",
+            9,
+        );
+
+        // Hacker News must be filtered
+        assert!(!structured.entities.iter().any(|e| e.name.contains("Hacker News")));
+        assert_eq!(structured.entities.len(), 4);
+        assert_eq!(candidates.len(), 4);
+
+        // Check report structure
+        assert!(report.contains("## Executive Summary"));
+        assert!(report.contains("## Results"));
+        assert!(report.contains("## Evidence & Verification"));
+        assert!(report.contains("## Comparison Matrix"));
+        assert!(report.contains("## Analysis & Strategic Insights"));
+        assert!(report.contains("## Research Limitations & Information Gaps"));
     }
 }
