@@ -117,6 +117,8 @@
 | 64 | Verify with `cargo test --lib` (15 passing tests), `npx tsc --noEmit` and production `npm run build` | ✅ Done | Antigravity |
 | 65 | SVG app icon, 5s single-word rotating tagline, permanent haptic trace in accordion | ✅ Done | Antigravity |
 | 66 | Version alignment v2.1.5, .gitignore legacy exclusion, README update & release notes | ✅ Done | Antigravity |
+| 67 | Standalone styled HTML export with dark theme, citations & clean markdown/clipboard in `src/App.tsx` & `src-tauri/src/lib.rs` | ✅ Done | Antigravity |
+| 68 | Normalize template routing synonyms & add auto-detection table fallback for cards in `src/App.tsx` & `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
 
 ---
 

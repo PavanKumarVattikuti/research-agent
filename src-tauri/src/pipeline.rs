@@ -720,10 +720,17 @@ default_prose — for narrative analysis, general research";
 
     let template_cleaned = clean_json_str(&template_raw);
     let template_choice: TemplateHint = serde_json::from_str(&template_cleaned).unwrap_or_default();
-    let template_hint = if template_choice.template.is_empty() {
-        "default_prose".to_string()
+    let raw_tmpl = template_choice.template.to_lowercase();
+    let template_hint = if raw_tmpl.contains("rank") || raw_tmpl.contains("list") || raw_tmpl.contains("top") {
+        "ranked_list".to_string()
+    } else if raw_tmpl.contains("news") || raw_tmpl.contains("feed") || raw_tmpl.contains("update") {
+        "news_feed".to_string()
+    } else if raw_tmpl.contains("compare") || raw_tmpl.contains("table") || raw_tmpl.contains("matrix") || raw_tmpl.contains("vs") {
+        "comparison_table".to_string()
+    } else if raw_tmpl.contains("card") || raw_tmpl.contains("flash") || raw_tmpl.contains("qa") {
+        "flashcards".to_string()
     } else {
-        template_choice.template.clone()
+        "default_prose".to_string()
     };
 
     emit_haptic(
@@ -801,9 +808,14 @@ Strict Guidelines: \
         }
         fallback
     } else {
-        // Ensure template hint is present if LLM forgot it
-        if final_report_raw.contains("<!-- TEMPLATE:") {
-            final_report_raw
+        // Ensure canonical template hint is present at the very top
+        if let Some(pos) = final_report_raw.find("<!-- TEMPLATE:") {
+            if let Some(end_pos) = final_report_raw[pos..].find("-->") {
+                let after = &final_report_raw[pos + end_pos + 3..];
+                format!("<!-- TEMPLATE: {} -->{}", template_hint, after)
+            } else {
+                format!("<!-- TEMPLATE: {} -->\n{}", template_hint, final_report_raw)
+            }
         } else {
             format!("<!-- TEMPLATE: {} -->\n{}", template_hint, final_report_raw)
         }

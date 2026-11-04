@@ -777,9 +777,30 @@ export default function App() {
   // Template Detection & Renderers
   // ---------------------------------------------------------------------------
   const parseTemplateHint = (md: string): { hint: string; body: string } => {
-    const match = md.match(/^<!--\s*TEMPLATE:\s*(\w+)\s*-->\n?/);
-    if (match) return { hint: match[1], body: md.slice(match[0].length) };
-    return { hint: "default_prose", body: md };
+    const match = md.match(/^<!--\s*TEMPLATE:\s*([\w\-]+)\s*-->\n?/i);
+    let hint = "default_prose";
+    let body = md;
+    if (match) {
+      const raw = match[1].toLowerCase().replace(/-/g, "_");
+      body = md.slice(match[0].length);
+      if (raw.includes("rank") || raw.includes("list") || raw.includes("top")) {
+        hint = "ranked_list";
+      } else if (raw.includes("news") || raw.includes("feed") || raw.includes("update")) {
+        hint = "news_feed";
+      } else if (raw.includes("compare") || raw.includes("table") || raw.includes("matrix") || raw.includes("vs")) {
+        hint = "comparison_table";
+      } else if (raw.includes("card") || raw.includes("flash") || raw.includes("qa") || raw.includes("faq")) {
+        hint = "flashcards";
+      }
+    } else {
+      // Content-based intelligent heuristic if template hint was omitted
+      if (/\|\s*#\s*\|\s*Title\s*\|/i.test(md) || /^\|\s*1\s*\|.+/m.test(md)) {
+        hint = "ranked_list";
+      } else if (/latest|weekly|today|announced/i.test(md) && /\[\d+\]/.test(md)) {
+        hint = "news_feed";
+      }
+    }
+    return { hint, body };
   };
 
   // Parse ranked list items from markdown — supports both ### headings and markdown tables
