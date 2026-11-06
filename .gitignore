@@ -43,4 +43,13 @@ src-tauri/icons/ios/
 Thumbs.db
 Desktop.ini
 *.tmp
+*.bak
+*.swp
+*.swo
+*~
 .DS_Store
+
+# Temporary scratch & debug directories
+scratch/
+*.scratch
+

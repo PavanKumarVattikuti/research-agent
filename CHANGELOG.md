@@ -83,3 +83,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transitioned to the Evidence-First Research Architecture with publisher blacklists and canonical Roman numeral deduplication.
 - Added academic preprint search (arXiv Atom XML parser).
 - Added Obsidian Vault Export (`.VAULT`) and native wikilink graph traversal for offline search.
+
+---
+
+## [2.1.5] — 2026-11-04
+
+### 🚀 Ground-Up Native Desktop Rewrite
+- Rewrote the legacy Python/Gradio prototype into a native desktop app powered by Rust 1.99+, Tauri v2, and SolidJS.
+- Reduced binary footprint from ~220 MB to **~10.5 MB** and idle RAM consumption from ~350 MB to **~35 MB**.
+- Sub-second instant launch (<400ms cold start).
+- Introduced Single Micro-Task Word Decomposition, breaking multi-attribute queries into atomic semantic parts.
+- Implemented multi-engine anti-bot search with Google News RSS and Hacker News Algolia fallback.
+- Added 4 smart UI layouts: Ranked List, News Feed, Comparative Matrix, and 3D Flip Flashcards.
+- Added embedded local SQLite session history and 100% offline Obsidian Vault search.

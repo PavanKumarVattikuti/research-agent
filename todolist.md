@@ -230,6 +230,7 @@
 | 118 | Implement frontend session caching and complete result restoration in `App.tsx` | ✅ Done | Antigravity |
 | 119 | Create comprehensive `CHANGELOG.md` for v2.2.4 release | ✅ Done | Antigravity |
 | 120 | Recompile `.exe`, run tests, and verify end-to-end | ✅ Done | Antigravity |
+| 121 | Overhaul README (workflow, architecture, screenshots, benchmarks, samples), consolidate changelog & clean repo | ✅ Done | Antigravity |
 
 ### Legend
 - ⬜ Todo — Not started
