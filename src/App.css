@@ -562,6 +562,28 @@ body {
   color: #38D9C0;
 }
 
+.metric-pill-digested {
+  background: rgba(168, 85, 247, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.3);
+  color: #C084FC;
+}
+
+/* Source Digest Cards */
+.source-digest-card {
+  background: #14171A;
+  border: 1px solid #22292F;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  transition: border-color 0.2s ease, transform 0.15s ease;
+}
+
+.source-digest-card:hover {
+  border-color: rgba(56, 217, 192, 0.35);
+}
+
 /* Entity Cards */
 .entity-card-v2 {
   background: #121518;

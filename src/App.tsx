@@ -74,6 +74,15 @@ interface LimitationItem {
   description: string;
 }
 
+interface SourceDigest {
+  source_id: number;
+  title: string;
+  url: string;
+  summary: string;
+  entities: string[];
+  relevance: string;
+}
+
 interface StructuredResearchData {
   executive_summary: string;
   requested_count: number;
@@ -82,6 +91,7 @@ interface StructuredResearchData {
   entities: ResearchEntity[];
   comparison_matrix: ComparisonEntry[];
   limitations: LimitationItem[];
+  source_digests?: SourceDigest[];
 }
 
 interface ResearchOutput {
@@ -116,6 +126,8 @@ interface FullSession {
   summary: SessionSummary;
   report_markdown: string;
   citations: string[];
+  output_json?: string;
+  output?: ResearchOutput;
 }
 
 interface TestResult {
@@ -162,10 +174,12 @@ export default function App() {
   // Active Research Result & Session
   const [activeResult, setActiveResult] = createSignal<ResearchOutput | null>(null);
   const [activeSessionId, setActiveSessionId] = createSignal<number | null>(null);
+  const sessionResultsCache = new Map<number, ResearchOutput>();
   const [schematicOpen, setSchematicOpen] = createSignal(true);
   const [copyFeedback, setCopyFeedback] = createSignal(false);
   const [exportStatus, setExportStatus] = createSignal<string | null>(null);
   const [exportHtmlStatus, setExportHtmlStatus] = createSignal<string | null>(null);
+  const [exportVaultStatus, setExportVaultStatus] = createSignal<string | null>(null);
   const [displayMode, setDisplayMode] = createSignal<"evidence" | "markdown">("evidence");
   const [expandedClaims, setExpandedClaims] = createSignal<Record<number, boolean>>({});
 
@@ -485,7 +499,13 @@ export default function App() {
       });
       setActiveResult(output);
       setFollowUpQuery("");
-      loadHistory();
+      await loadHistory();
+      const recent = history();
+      if (recent.length > 0) {
+        const latestId = recent[0].id;
+        setActiveSessionId(latestId);
+        sessionResultsCache.set(latestId, output);
+      }
     } catch (err: any) {
       setSearchError(String(err));
     } finally {
@@ -496,18 +516,53 @@ export default function App() {
 
   const handleSelectSession = async (item: SessionSummary) => {
     try {
+      // 1. Instant complete restore from in-memory session cache
+      const cached = sessionResultsCache.get(item.id);
+      if (cached) {
+        setActiveResult(cached);
+        setActiveSessionId(item.id);
+        setCurrentView("answer");
+        setActiveTab("answer");
+        setSchematicOpen(false);
+        return;
+      }
+
+      // 2. Load complete session from SQLite backend
       const full = await invoke<FullSession | null>("get_history_detail", { sessionId: item.id });
       if (full) {
-        setActiveResult({
-          query: full.summary.query,
-          mode: full.summary.mode,
-          constraints: [],
-          layers: [],
-          candidates: [],
-          final_report: full.report_markdown,
-          citations: full.citations,
-          stopped_early: true,
-        });
+        let completeOutput: ResearchOutput;
+        if (full.output) {
+          completeOutput = full.output;
+        } else if (full.output_json) {
+          try {
+            completeOutput = JSON.parse(full.output_json);
+          } catch {
+            completeOutput = {
+              query: full.summary.query,
+              mode: full.summary.mode,
+              constraints: [],
+              layers: [],
+              candidates: [],
+              final_report: full.report_markdown,
+              citations: full.citations,
+              stopped_early: true,
+            };
+          }
+        } else {
+          completeOutput = {
+            query: full.summary.query,
+            mode: full.summary.mode,
+            constraints: [],
+            layers: [],
+            candidates: [],
+            final_report: full.report_markdown,
+            citations: full.citations,
+            stopped_early: true,
+          };
+        }
+
+        sessionResultsCache.set(item.id, completeOutput);
+        setActiveResult(completeOutput);
         setActiveSessionId(item.id);
         setCurrentView("answer");
         setActiveTab("answer");
@@ -522,6 +577,7 @@ export default function App() {
     e.stopPropagation();
     try {
       await invoke("delete_history_item", { sessionId: id });
+      sessionResultsCache.delete(id);
       setHistory((prev) => prev.filter((item) => item.id !== id));
       if (activeSessionId() === id) {
         setActiveResult(null);
@@ -836,6 +892,32 @@ export default function App() {
     }
   };
 
+  const exportVault = async () => {
+    const res = activeResult();
+    const vault = vaultPath().trim();
+    if (!res) return;
+    if (!vault) {
+      setExportVaultStatus("No vault path");
+      setTimeout(() => setExportVaultStatus(null), 2500);
+      return;
+    }
+
+    try {
+      await invoke<string>("save_vault_export", {
+        vaultPath: vault,
+        query: res.query,
+        mode: res.mode,
+        content: res.final_report,
+        citations: res.citations,
+      });
+      setExportVaultStatus("✓ Saved to Vault");
+      setTimeout(() => setExportVaultStatus(null), 3000);
+    } catch (err: any) {
+      setExportVaultStatus("Vault error");
+      setTimeout(() => setExportVaultStatus(null), 2500);
+    }
+  };
+
   const copyReport = () => {
     const res = activeResult();
     if (!res || !res.final_report) return;
@@ -1054,7 +1136,7 @@ export default function App() {
             }}
             class="flex items-center gap-2 cursor-pointer group"
           >
-            <span class="w-2.5 h-2.5 rounded-full bg-[#38D9C0] shadow-sm shadow-[#38D9C0]/50 group-hover:scale-110 transition"></span>
+            <img src="/icon.png" class="w-4 h-4 rounded-md shadow-sm group-hover:scale-110 transition-transform" alt="Research Agent Logo" />
             <span class="font-semibold text-xs tracking-wider text-[#E8EDF0]">RESEARCH AGENT</span>
           </div>
 
@@ -1338,7 +1420,7 @@ export default function App() {
               <span class="flex items-center gap-1.5 text-[#34D399]">
                 <span class="w-1.5 h-1.5 rounded-full bg-[#34D399] animate-pulse"></span> Engine Ready
               </span>
-              <span class="font-mono text-[#64707D]">v2.2.0</span>
+              <span class="font-mono text-[#64707D]">v2.2.4</span>
             </div>
           </aside>
         </Show>
@@ -1352,8 +1434,8 @@ export default function App() {
 
               {/* REAL APP ICON */}
               <img
-                src="/icon.svg"
-                class="w-14 h-14 rounded-2xl mb-5 shadow-xl shadow-[#38D9C0]/10 hover:scale-105 transition-transform duration-300"
+                src="/icon.png"
+                class="w-16 h-16 rounded-2xl mb-5 shadow-2xl shadow-[#38D9C0]/20 hover:scale-105 transition-transform duration-300 select-none"
                 alt="Research Agent"
                 onError={(e) => {
                   e.currentTarget.style.display = "none";
@@ -1924,6 +2006,12 @@ export default function App() {
                             <span>📚 Sources:</span>
                             <span class="font-bold">{activeResult()?.citations.length || 0}</span>
                           </div>
+                          <Show when={activeResult()!.structured_data!.source_digests && activeResult()!.structured_data!.source_digests!.length > 0}>
+                            <div class="metric-pill metric-pill-digested">
+                              <span>🔍 Deep-Read:</span>
+                              <span class="font-bold">{activeResult()!.structured_data!.source_digests!.length}</span>
+                            </div>
+                          </Show>
                         </div>
                       </div>
 
@@ -2134,6 +2222,67 @@ export default function App() {
                         </div>
                       </Show>
 
+                      {/* 3.5 DEEP SOURCE DIGESTS (MAP-REDUCE) */}
+                      <Show when={activeResult()!.structured_data!.source_digests && activeResult()!.structured_data!.source_digests!.length > 0}>
+                        <div class="flex flex-col gap-3">
+                          <div class="flex items-center justify-between">
+                            <h2 class="text-sm font-semibold uppercase tracking-wider text-[#929DA6] flex items-center gap-2">
+                              <span>Deep Source Digests</span>
+                              <span class="text-xs px-2 py-0.5 rounded-full bg-[#1A2228] text-[#38D9C0] border border-[#2A3B3E] font-mono">
+                                {activeResult()!.structured_data!.source_digests!.length} deep-read
+                              </span>
+                            </h2>
+                          </div>
+                          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <For each={activeResult()!.structured_data!.source_digests}>
+                              {(digest) => (
+                                <div class="source-digest-card">
+                                  <div class="flex items-start justify-between gap-2">
+                                    <a
+                                      href={digest.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      class="text-xs font-semibold text-[#38D9C0] hover:underline line-clamp-1 flex-1 flex items-center gap-1.5"
+                                    >
+                                      <span class="text-[10px] px-1.5 py-0.2 rounded bg-[#1A2228] text-[#929DA6] border border-[#263138] font-mono">
+                                        [{digest.source_id}]
+                                      </span>
+                                      <span>{digest.title}</span>
+                                    </a>
+                                    <span
+                                      class={`px-1.5 py-0.5 text-[10px] rounded font-mono font-medium capitalize shrink-0 ${
+                                        digest.relevance === "high"
+                                          ? "bg-[#143B33] text-[#38D9C0] border border-[#1E574B]"
+                                          : digest.relevance === "low"
+                                          ? "bg-[#252219] text-[#E5A84B] border border-[#3D3520]"
+                                          : "bg-[#1C2329] text-[#929DA6] border border-[#2A353E]"
+                                      }`}
+                                    >
+                                      {digest.relevance}
+                                    </span>
+                                  </div>
+                                  <p class="text-xs text-[#C5CED6] leading-relaxed">
+                                    {digest.summary}
+                                  </p>
+                                  <Show when={digest.entities && digest.entities.length > 0}>
+                                    <div class="flex flex-wrap items-center gap-1 mt-auto pt-2 border-t border-[#1E252C]">
+                                      <span class="text-[10px] text-[#64707D] font-mono">Entities:</span>
+                                      <For each={digest.entities}>
+                                        {(ent) => (
+                                          <span class="px-1.5 py-0.5 rounded text-[10px] bg-[#1A2127] text-[#929DA6] font-mono border border-[#252E36]">
+                                            {ent}
+                                          </span>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              )}
+                            </For>
+                          </div>
+                        </div>
+                      </Show>
+
                       {/* 4. RESEARCH LIMITATIONS & GAPS */}
                       <Show when={activeResult()!.structured_data!.limitations && activeResult()!.structured_data!.limitations.length > 0}>
                         <div class="limitations-box">
@@ -2177,6 +2326,62 @@ export default function App() {
                       ← Back to Answer
                     </button>
                   </div>
+
+                  {/* Deep Source Digests if available */}
+                  <Show when={activeResult()?.structured_data?.source_digests && activeResult()!.structured_data!.source_digests!.length > 0}>
+                    <div class="flex flex-col gap-2">
+                      <h3 class="text-xs font-semibold uppercase tracking-wider text-[#38D9C0] font-mono">
+                        Deep Source Webpage Summaries ({activeResult()!.structured_data!.source_digests!.length})
+                      </h3>
+                      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-2">
+                        <For each={activeResult()!.structured_data!.source_digests}>
+                          {(digest) => (
+                            <div class="source-digest-card">
+                              <div class="flex items-start justify-between gap-2">
+                                <a
+                                  href={digest.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  class="text-xs font-semibold text-[#38D9C0] hover:underline line-clamp-1 flex-1 flex items-center gap-1.5"
+                                >
+                                  <span class="text-[10px] px-1.5 py-0.2 rounded bg-[#1A2228] text-[#929DA6] border border-[#263138] font-mono">
+                                    [{digest.source_id}]
+                                  </span>
+                                  <span>{digest.title}</span>
+                                </a>
+                                <span
+                                  class={`px-1.5 py-0.5 text-[10px] rounded font-mono font-medium capitalize shrink-0 ${
+                                    digest.relevance === "high"
+                                      ? "bg-[#143B33] text-[#38D9C0] border border-[#1E574B]"
+                                      : digest.relevance === "low"
+                                      ? "bg-[#252219] text-[#E5A84B] border border-[#3D3520]"
+                                      : "bg-[#1C2329] text-[#929DA6] border border-[#2A353E]"
+                                  }`}
+                                >
+                                  {digest.relevance}
+                                </span>
+                              </div>
+                              <p class="text-xs text-[#C5CED6] leading-relaxed">
+                                {digest.summary}
+                              </p>
+                              <Show when={digest.entities && digest.entities.length > 0}>
+                                <div class="flex flex-wrap items-center gap-1 mt-auto pt-2 border-t border-[#1E252C]">
+                                  <span class="text-[10px] text-[#64707D] font-mono">Entities:</span>
+                                  <For each={digest.entities}>
+                                    {(ent) => (
+                                      <span class="px-1.5 py-0.5 rounded text-[10px] bg-[#1A2127] text-[#929DA6] font-mono border border-[#252E36]">
+                                        {ent}
+                                      </span>
+                                    )}
+                                  </For>
+                                </div>
+                              </Show>
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </div>
+                  </Show>
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <For each={activeResult()?.citations}>
@@ -2270,6 +2475,18 @@ export default function App() {
                       </svg>
                       <span>.PDF</span>
                     </button>
+                    <Show when={vaultPath().trim()}>
+                      <button
+                        onClick={exportVault}
+                        class="px-2.5 py-1 rounded-lg bg-[#181C20] hover:bg-[#1F2429] hover:text-[#E8EDF0] transition flex items-center gap-1.5 border border-[#252B30]"
+                        title="Save note directly into Obsidian Vault (Research Agent folder)"
+                      >
+                        <span class="text-xs">💎</span>
+                        <Show when={exportVaultStatus()} fallback={<span>.VAULT</span>}>
+                          {(status) => <span class="text-[#34D399] font-medium">{status()}</span>}
+                        </Show>
+                      </button>
+                    </Show>
                     <button
                       onClick={copyReport}
                       class="px-2.5 py-1 rounded-lg bg-[#181C20] hover:bg-[#1F2429] hover:text-[#E8EDF0] transition flex items-center gap-1.5 border border-[#252B30]"

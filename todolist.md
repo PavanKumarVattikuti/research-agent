@@ -140,6 +140,97 @@
 
 ---
 
+## Task: Version 2.2.0 (Extension A) — Academic Preprint Retrieval & Direct Obsidian Vault Export
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 79 | Implement `fetch_arxiv_search` & Atom XML parser in `src-tauri/src/search.rs` | ✅ Done | Antigravity |
+| 80 | Integrate arXiv into `execute_multi_source_search` with scientific query detection | ✅ Done | Antigravity |
+| 81 | Implement `save_to_obsidian_vault` in `src-tauri/src/vault.rs` and expose IPC command in `src-tauri/src/lib.rs` | ✅ Done | Antigravity |
+| 82 | Add "Save to Vault" (`.VAULT`) button in `src/App.tsx` follow-up toolbar | ✅ Done | Antigravity |
+| 83 | Add unit tests for arXiv XML parser & vault note generation in `src-tauri/src/search.rs` and `src-tauri/src/vault.rs` | ✅ Done | Antigravity |
+| 84 | Full verification: `cargo test --lib`, `npx tsc --noEmit`, and `npm run build` | ✅ Done | Antigravity |
+
+---
+
+## Task: Version 2.2.0 (Extension B) — Obsidian Wikilink Extraction & Backlink Discovery for Offline Search
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 85 | Implement `extract_wikilinks` and `find_backlinks_in_vault` in `src-tauri/src/vault.rs` | ✅ Done | Antigravity |
+| 86 | Include linked notes and backlinks in `VaultNoteMatch` struct in `src-tauri/src/vault.rs` | ✅ Done | Antigravity |
+| 87 | Integrate wikilinks into `run_offline_vault_pipeline` in `src-tauri/src/pipeline.rs` | ✅ Done | Antigravity |
+| 88 | Display connected vault backlinks in `src/App.tsx` Sources & Evidence views | ✅ Done | Antigravity |
+| 89 | Add unit tests for `extract_wikilinks` and backlink discovery in `src-tauri/src/vault.rs` | ✅ Done | Antigravity |
+| 90 | Verify full test suite (`cargo test --lib`), `tsc`, and `npm run build` | ✅ Done | Antigravity |
+
+---
+
+## Task: Version 2.2.1 — Crystal Prism App Icon, Launch Fix & Linux Bundle Preparation
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 91 | Copy Downloads/Icon.png and generate multi-resolution desktop icons (.ico, .icns, .png for Windows & Linux) via npx @tauri-apps/cli icon | ✅ Done | Antigravity |
+| 92 | Update Web UI logos in index.html, src/App.tsx (Hero, header, sidebar footer) and copy to public/icon.png | ✅ Done | Antigravity |
+| 93 | Add convenience npm scripts (app:dev, app:build) in package.json to prevent Vite CLI entry errors | ✅ Done | Antigravity |
+| 94 | Update version to 2.2.1 in Cargo.toml, tauri.conf.json, package.json, src/App.tsx, README.md, project_structure.md | ✅ Done | Antigravity |
+| 95 | Verify .gitignore comprehensively excludes legacy files, temporary assets, and target artifacts | ✅ Done | Antigravity |
+| 96 | Compile standalone release executable, run full test suite (cargo test --lib), and compile RELEASE_NOTES_v2.2.1.md | ✅ Done | Antigravity |
+
+---
+
+---
+
+## Task: Version 2.2.2 — Strict Security Checks, Format Validation & Robust Entity Fallback
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 97 | Implement HTML tag stripping and publisher extraction in parse_rss_xml in src-tauri/src/search.rs | ✅ Done | Antigravity |
+| 98 | Implement is_valid_candidate_entity, query-echo rejection & container phrase filtering in src-tauri/src/pipeline.rs | ✅ Done | Antigravity |
+| 99 | Replace fake-entity fallback with honest zero-candidate reporting in src-tauri/src/pipeline.rs | ✅ Done | Antigravity |
+| 100 | Implement IPC input validation, path traversal guards & format whitelisting in src-tauri/src/lib.rs & src-tauri/src/vault.rs | ✅ Done | Antigravity |
+| 101 | Bump version to 2.2.2 in Cargo.toml, tauri.conf.json, package.json, App.tsx, README.md, project_structure.md | ✅ Done | Antigravity |
+| 102 | Add unit tests for RSS HTML stripping, entity validation & path traversal, run cargo test --lib, tsc, npm run build | ✅ Done | Antigravity |
+
+---
+
+## Task: Version 2.2.3 — Persistent Working Memory, Candidate Continuity & Goal Validation
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 103 | Update rank_and_select_top_evidence with candidate entity relevance boost in src-tauri/src/search.rs | ✅ Done | Antigravity |
+| 104 | Implement accumulated_discovered_entities working memory accumulator in src-tauri/src/pipeline.rs | ✅ Done | Antigravity |
+| 105 | Update extractor prompt with candidate continuity and expand evidence context to 15 sources in src-tauri/src/pipeline.rs | ✅ Done | Antigravity |
+| 106 | Implement Output Goal Validation fallback in src-tauri/src/pipeline.rs | ✅ Done | Antigravity |
+| 107 | Bump version to 2.2.3 in Cargo.toml, tauri.conf.json, package.json, App.tsx, README.md, project_structure.md | ✅ Done | Antigravity |
+| 108 | Add unit tests for working memory and goal validation, run cargo test --lib, tsc, npm run build, and verify release | ✅ Done | Antigravity |
+
+---
+
+## Task: Comprehensive Codebase Architecture & Function-by-Function Engineering Guide
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 109 | Generate single-file comprehensive codebase architecture, function breakdown & improvement roadmap (`CODEBASE_ARCHITECTURE_AND_FUNCTION_GUIDE.md`) | ✅ Done | Antigravity |
+
+---
+
+## Task: Version 2.2.4 — Map-Reduce Source Digest Stage & List Aggregator Ranking
+
+| # | Step | Status | Agent |
+|---|------|--------|-------|
+| 110 | Update `rank_and_select_top_evidence` to boost list/calendar aggregators for list queries | ✅ Done | Antigravity |
+| 111 | Implement `SourceDigest` data structure, `digest_source`, and JSON parsing in `pipeline.rs` | ✅ Done | Antigravity |
+| 112 | Implement Semaphore-bounded concurrent fetch + Map-Reduce pipeline stage in `pipeline.rs` | ✅ Done | Antigravity |
+| 113 | Unify sources count variable and eliminate hardcoded "not yet announced" fallback text | ✅ Done | Antigravity |
+| 114 | Update `StructuredResearchData`, Markdown report builder & frontend SolidJS Source Digest cards in `App.tsx` & `App.css` | ✅ Done | Antigravity |
+| 115 | Bump version to 2.2.4 across Cargo.toml, tauri.conf.json, package.json, App.tsx, README.md, project_structure.md | ✅ Done | Antigravity |
+| 116 | Comprehensive test suite & verification (`cargo test --lib`, `npx tsc --noEmit`, `npm run build`) | ✅ Done | Antigravity |
+| 117 | Persist full `output_json` in SQLite `history.rs` and update `get_session_details` to return complete `ResearchOutput` | ✅ Done | Antigravity |
+| 118 | Implement frontend session caching and complete result restoration in `App.tsx` | ✅ Done | Antigravity |
+| 119 | Create comprehensive `CHANGELOG.md` for v2.2.4 release | ✅ Done | Antigravity |
+| 120 | Recompile `.exe`, run tests, and verify end-to-end | ✅ Done | Antigravity |
+
 ### Legend
 - ⬜ Todo — Not started
 - 🔄 In Progress (agent-name) — Being worked on

@@ -1,6 +1,6 @@
 {
   "name": "tauri-app",
-  "version": "2.2.0",
+  "version": "2.2.4",
   "description": "",
   "type": "module",
   "scripts": {
@@ -8,7 +8,9 @@
     "dev": "vite",
     "build": "vite build",
     "serve": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "app:dev": "tauri dev",
+    "app:build": "tauri build"
   },
   "license": "MIT",
   "dependencies": {

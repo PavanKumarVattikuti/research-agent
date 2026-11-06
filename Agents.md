@@ -69,4 +69,8 @@ All outbound web fetch and search operations pass through `ssrf::validate_extern
 3. Complete and verify work with unit/integration tests (`cargo test --lib`).
 4. Mark task as `✅ Done`.
 5. Maintain legacy compatibility: never destroy or overwrite files in `legacy/v1_backup/`.
-6. **Git Rule**: Do not commit to Git until the desktop application is fully verified end-to-end.
+6. **Strict Git & GitHub Rule (ABSOLUTE)**:
+   - **NEVER run `git push` or push releases/tags to GitHub under any circumstances.**
+   - All Git commits, tags, and remote pushes are strictly reserved for the human user.
+   - AI agents must NEVER execute `git push`, `gh release create`, or create/push tags.
+   - Keep all changes strictly local on the machine. Provide clear verification instructions and let the user decide when and what to push manually.

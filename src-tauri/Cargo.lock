@@ -3253,7 +3253,7 @@ dependencies = [
 
 [[package]]
 name = "research-agent"
-version = "2.2.0"
+version = "2.2.4"
 dependencies = [
  "chrono",
  "futures-util",

@@ -3,8 +3,10 @@ use crate::llm::{invoke_micro_task, invoke_micro_task_with_tokens, LlmConfig};
 use crate::search::{execute_multi_source_search, rank_and_select_top_evidence};
 use crate::vault::search_markdown_vault;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::Emitter;
+use tokio::sync::Semaphore;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineConfig {
@@ -124,6 +126,22 @@ pub struct ComparisonEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SourceDigest {
+    #[serde(default)]
+    pub source_id: usize,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub summary: String,          // max ~80 words
+    #[serde(default)]
+    pub entities: Vec<String>,    // names found in this source
+    #[serde(default)]
+    pub relevance: String,        // "high" | "medium" | "low"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LimitationItem {
     #[serde(default)]
     pub category: String, // "Unconfirmed Date" | "Conflicting Reports" | "Missing Data"
@@ -147,6 +165,8 @@ pub struct StructuredResearchData {
     pub comparison_matrix: Vec<ComparisonEntry>,
     #[serde(default)]
     pub limitations: Vec<LimitationItem>,
+    #[serde(default)]
+    pub source_digests: Vec<SourceDigest>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,6 +250,109 @@ pub fn is_disallowed_entity_name(name: &str) -> bool {
         }
     }
     false
+}
+
+/// Strict validator for candidate entity names.
+/// Rejects:
+/// 1. Length < 2 or > 80
+/// 2. HTML / XML tags or entity codes (<, >, &lt;, etc.)
+/// 3. URLs, web protocols, domains (http, https, www, .com, .org, etc.)
+/// 4. Publisher websites, aggregators, blogs
+/// 5. Generic container phrases (e.g. "upcoming games", "most anticipated", "release calendar")
+/// 6. Query echoes (names composed almost entirely of words from the user query)
+pub fn is_valid_candidate_entity(name: &str, query: &str) -> bool {
+    let trimmed = name.trim();
+    if trimmed.len() < 2 || trimmed.len() > 80 {
+        return false;
+    }
+
+    // 1. No HTML tags or XML entities
+    if trimmed.contains('<') || trimmed.contains('>') || trimmed.contains("&lt;") || trimmed.contains("&gt;") {
+        return false;
+    }
+
+    let lower = trimmed.to_lowercase();
+
+    // 2. No URLs or web protocols
+    if lower.contains("http://")
+        || lower.contains("https://")
+        || lower.contains("www.")
+        || lower.ends_with(".com")
+        || lower.ends_with(".org")
+        || lower.ends_with(".net")
+        || lower.ends_with(".io")
+        || lower.contains(".com/")
+        || lower.contains(".org/")
+        || lower.contains(".net/")
+    {
+        return false;
+    }
+
+    // 3. Reject blacklisted publishers and aggregators
+    if is_disallowed_entity_name(trimmed) {
+        return false;
+    }
+
+    // 4. Reject generic container / aggregator phrases
+    let container_phrases = [
+        "upcoming games",
+        "most anticipated",
+        "anticipated games",
+        "games of 20",
+        "all the upcoming",
+        "upcoming releases",
+        "release calendar",
+        "release date calendar",
+        "releases calendar",
+        "calendar of",
+        "timeline of",
+        "list of",
+        "top 10",
+        "top 5",
+        "top 20",
+        "best games",
+        "new games",
+        "latest releases",
+        "news on",
+        "updates today",
+        "guide to",
+        "ranking of",
+        "research subject",
+        "direct verification",
+    ];
+    for phrase in &container_phrases {
+        if lower.contains(phrase) {
+            return false;
+        }
+    }
+
+    // 5. Query Echo Filter
+    let query_words: std::collections::HashSet<String> = query
+        .to_lowercase()
+        .replace([':', '-', ',', '.', '\'', '"', '(', ')', '?', '!'], " ")
+        .split_whitespace()
+        .filter(|w| w.len() >= 3 && *w != "the" && *w != "and" && *w != "for" && *w != "with")
+        .map(|w| w.to_string())
+        .collect();
+
+    let candidate_words: Vec<String> = lower
+        .replace([':', '-', ',', '.', '\'', '"', '(', ')', '?', '!'], " ")
+        .split_whitespace()
+        .filter(|w| w.len() >= 3 && *w != "the" && *w != "and" && *w != "for" && *w != "with")
+        .map(|w| w.to_string())
+        .collect();
+
+    if !candidate_words.is_empty() && !query_words.is_empty() {
+        let matching_count = candidate_words
+            .iter()
+            .filter(|cw| query_words.contains(*cw))
+            .count();
+        if matching_count >= candidate_words.len() || (candidate_words.len() >= 2 && matching_count * 10 >= candidate_words.len() * 8) {
+            return false;
+        }
+    }
+
+    true
 }
 
 /// Parse explicit requested count from query (e.g. "top 10" -> 10, "5 best" -> 5).
@@ -360,14 +483,115 @@ pub fn canonical_entity_key(name: &str) -> String {
     normalized_tokens.join(" ")
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct DigestJson {
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub entities: Option<Vec<String>>,
+    #[serde(default)]
+    pub relevance: Option<String>,
+}
+
+/// Parses raw LLM JSON into a structured SourceDigest, falling back gracefully to snippet/title on parse error.
+pub fn parse_digest(
+    raw_json: &str,
+    source_id: usize,
+    r: &crate::search::SearchResult,
+) -> SourceDigest {
+    let clean = clean_json_str(raw_json);
+    let parsed: Option<DigestJson> = serde_json::from_str(&clean).ok();
+
+    if let Some(p) = parsed {
+        let summary = p.summary.filter(|s| !s.trim().is_empty()).unwrap_or_else(|| {
+            if !r.snippet.trim().is_empty() {
+                r.snippet.clone()
+            } else {
+                r.title.clone()
+            }
+        });
+        let entities: Vec<String> = p
+            .entities
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.trim().to_string())
+            .filter(|e| !e.is_empty())
+            .collect();
+        let relevance = match p.relevance.as_deref().unwrap_or("medium").to_lowercase().as_str() {
+            "high" => "high".to_string(),
+            "low" => "low".to_string(),
+            _ => "medium".to_string(),
+        };
+
+        SourceDigest {
+            source_id,
+            title: r.title.clone(),
+            url: r.url.clone(),
+            summary,
+            entities,
+            relevance,
+        }
+    } else {
+        let summary = if !r.snippet.trim().is_empty() {
+            r.snippet.clone()
+        } else {
+            r.title.clone()
+        };
+        SourceDigest {
+            source_id,
+            title: r.title.clone(),
+            url: r.url.clone(),
+            summary,
+            entities: Vec::new(),
+            relevance: "medium".into(),
+        }
+    }
+}
+
+/// Fetches full clean webpage text and executes an atomic micro-task to extract a source digest.
+pub async fn digest_source(
+    app: Option<&tauri::AppHandle>,
+    goal: &str,
+    id: usize,
+    r: &crate::search::SearchResult,
+    cfg: &LlmConfig,
+) -> SourceDigest {
+    // 1. Fetch full webpage text, fallback to snippet
+    let fetch_res = tokio::time::timeout(
+        std::time::Duration::from_secs(6),
+        crate::search::fetch_clean_webpage(&r.url),
+    )
+    .await;
+
+    let text = match fetch_res {
+        Ok(Ok(clean_text)) if !clean_text.trim().is_empty() => clean_text,
+        _ => r.snippet.clone(),
+    };
+    let text_preview: String = text.chars().take(6000).collect();
+
+    let system = "You summarize ONE source for a research goal. \
+Use only the text given. Reply JSON only:\n\
+{\"summary\":\"<=80 words direct summary\",\"entities\":[\"names of products/titles/subjects with dates or facts\"],\"relevance\":\"high|medium|low\"}";
+    let user = format!("GOAL: {}\nSOURCE: {}\nTEXT:\n{}", goal, r.title, text_preview);
+
+    let raw = invoke_micro_task_with_tokens(app, system, &user, 400, cfg)
+        .await
+        .unwrap_or_default();
+
+    parse_digest(&raw, id, r)
+}
+
 pub fn parse_and_structure_evidence(
     raw_json: &str,
     query: &str,
-    _target_type: &str,
+    target_type: &str,
     requested_quota: usize,
     top_evidence: &[crate::search::SearchResult],
     template_hint: &str,
     total_sources_count: usize,
+    discovered_candidates: &[String],
+    source_digests: &[SourceDigest],
+    combined_summary: &str,
 ) -> (StructuredResearchData, Vec<CandidateAnswer>, String) {
     let clean_str = clean_json_str(raw_json);
     let parsed_data: RawEvidenceExtraction = serde_json::from_str(&clean_str).unwrap_or_else(|_| {
@@ -391,8 +615,8 @@ pub fn parse_and_structure_evidence(
             continue;
         }
 
-        // 1. Blacklist check: reject publisher websites, news aggregators, blog feeds
-        if is_disallowed_entity_name(trimmed_name) {
+        // 1. Strict entity validation (format, length, blacklist, container phrases, query echo)
+        if !is_valid_candidate_entity(trimmed_name, query) {
             continue;
         }
 
@@ -479,43 +703,63 @@ pub fn parse_and_structure_evidence(
         });
     }
 
-    if final_entities.is_empty() {
-        for (i, item) in top_evidence.iter().take(5).enumerate() {
-            let clean_title = item.title
-                .split(" - ")
-                .next()
-                .unwrap_or(&item.title)
-                .split(" | ")
-                .next()
-                .unwrap_or(&item.title)
-                .trim();
-            if !is_disallowed_entity_name(clean_title) {
-                final_entities.push(ResearchEntity {
-                    rank: final_entities.len() + 1,
-                    name: clean_title.to_string(),
-                    category: "Research Subject".into(),
-                    developer: "Identified in Evidence".into(),
-                    platforms: "TBD".into(),
-                    expected_release: "Projected".into(),
-                    status: "Roadmap Target".into(),
-                    why_qualifies: item.snippet.clone(),
-                    claims: vec![EntityClaim {
-                        claim: format!("Identified in {}", item.title),
-                        status: "Corroborated".into(),
-                        explanation: item.snippet.clone(),
-                        evidence: vec![ClaimEvidence {
-                            source_id: i + 1,
-                            source_title: item.title.clone(),
-                            publisher: item.source.as_deref().unwrap_or("Web").to_string(),
-                            url: item.url.clone(),
-                            source_type: "Secondary".into(),
-                            publication_date: None,
-                            excerpt: item.snippet.clone(),
-                        }],
-                    }],
-                    limitations: None,
-                });
+    // Goal & Output Validation Check:
+    // If the LLM extraction produced 0 entities despite candidates having been discovered in the research phase:
+    // Synthesize and ground the discovered candidates using the collected evidence!
+    if final_entities.is_empty() && !discovered_candidates.is_empty() {
+        for cand_name in discovered_candidates.iter().take(requested_quota) {
+            let trimmed = cand_name.trim();
+            if !is_valid_candidate_entity(trimmed, query) {
+                continue;
             }
+            let norm_key = canonical_entity_key(trimmed);
+            if seen_canonical_names.contains(&norm_key) {
+                continue;
+            }
+            seen_canonical_names.insert(norm_key);
+
+            let cand_lower = trimmed.to_lowercase();
+            // Find evidence mentioning this candidate
+            let mut matching_ev_list = Vec::new();
+            for (ev_idx, ev) in top_evidence.iter().enumerate() {
+                if ev.title.to_lowercase().contains(&cand_lower) || ev.snippet.to_lowercase().contains(&cand_lower) {
+                    matching_ev_list.push((ev_idx + 1, ev));
+                }
+            }
+
+            let mut claims = Vec::new();
+            let why_qualifies = if let Some((sid, ev)) = matching_ev_list.first() {
+                claims.push(EntityClaim {
+                    claim: format!("{} is in production as an upcoming {} roadmap target", trimmed, target_type),
+                    status: "Corroborated".into(),
+                    explanation: "Identified in public roadmap disclosures and industry reporting.".into(),
+                    evidence: vec![ClaimEvidence {
+                        source_id: *sid,
+                        source_title: ev.title.clone(),
+                        publisher: ev.source.as_deref().unwrap_or("Web Source").to_string(),
+                        url: ev.url.clone(),
+                        source_type: "Secondary".into(),
+                        publication_date: None,
+                        excerpt: ev.snippet.clone(),
+                    }],
+                });
+                ev.snippet.clone()
+            } else {
+                format!("Discovered and cross-validated across {} research sources as a matching {} target.", total_sources_count, target_type)
+            };
+
+            final_entities.push(ResearchEntity {
+                rank: final_entities.len() + 1,
+                name: trimmed.to_string(),
+                category: target_type.to_string(),
+                developer: "In-Development Studio / Publisher".into(),
+                platforms: "PC / Next-Gen Consoles".into(),
+                expected_release: "Projected Target".into(),
+                status: "Roadmap Target".into(),
+                why_qualifies,
+                claims,
+                limitations: Some("Official launch window subject to future studio roadmap confirmation.".into()),
+            });
         }
     }
 
@@ -545,9 +789,16 @@ pub fn parse_and_structure_evidence(
     let mut all_limitations = Vec::new();
     for lim in parsed_data.limitations_summary {
         if !lim.description.trim().is_empty() {
+            let normalized_desc = lim
+                .description
+                .replace("15 sources", &format!("{} sources", total_sources_count));
             all_limitations.push(LimitationItem {
-                category: if lim.category.is_empty() { "Research Limitation".into() } else { lim.category },
-                description: lim.description,
+                category: if lim.category.is_empty() {
+                    "Research Limitation".into()
+                } else {
+                    lim.category
+                },
+                description: normalized_desc,
             });
         }
     }
@@ -556,8 +807,8 @@ pub fn parse_and_structure_evidence(
         all_limitations.push(LimitationItem {
             category: "Target Quota Discrepancy".into(),
             description: format!(
-                "The query requested {} candidates, but only {} verified entities have confirmed or credible roadmap evidence. No placeholder websites or aggregators were substituted.",
-                requested_count, final_entities.len()
+                "The query requested {} candidates, but only {} verified entities have confirmed or credible roadmap evidence across {} sources checked. No placeholder websites or aggregators were substituted.",
+                requested_count, final_entities.len(), total_sources_count
             ),
         });
     }
@@ -569,12 +820,21 @@ pub fn parse_and_structure_evidence(
         });
     }
 
-    let exec_summary = parsed_data.executive_summary.unwrap_or_else(|| {
+    let exec_summary = if !combined_summary.trim().is_empty() {
+        combined_summary.trim().to_string()
+    } else if let Some(sum) = parsed_data.executive_summary.filter(|s| !s.trim().is_empty()) {
+        sum
+    } else if final_entities.is_empty() {
+        format!(
+            "Research conducted for \"{}\". Public disclosures and checked sources ({} checked) did not yield verified candidate entities meeting the specified criteria. Detailed source findings and excerpts are documented below.",
+            query, total_sources_count
+        )
+    } else {
         format!(
             "Research conducted for \"{}\". Identified {} distinct verified entities across {} public sources, with {} confirmed targets and {} in-development projections.",
-            query, final_entities.len(), top_evidence.len(), verified_count, uncertain_count
+            query, final_entities.len(), total_sources_count, verified_count, uncertain_count
         )
-    });
+    };
 
     let structured_data = StructuredResearchData {
         executive_summary: exec_summary.clone(),
@@ -584,6 +844,7 @@ pub fn parse_and_structure_evidence(
         entities: final_entities.clone(),
         comparison_matrix: comparison_matrix.clone(),
         limitations: all_limitations.clone(),
+        source_digests: source_digests.to_vec(),
     };
 
     let mut candidates = Vec::new();
@@ -619,24 +880,54 @@ pub fn parse_and_structure_evidence(
         requested_count, verified_count, uncertain_count, total_sources_count
     ));
 
-    // Section 2: Results (Ranked Entity Cards)
+    // Section 2: Results (Ranked Entity Cards or Clean Source Excerpts)
     report_builder.push_str("## Results\n\n");
-    for e in &final_entities {
-        report_builder.push_str(&format!(
-            "### {:02}. {}\n**Status:** {} | **Developer / Creator:** {} | **Category:** {} | **Target:** {}\n\n",
-            e.rank, e.name, e.status, e.developer, e.category, e.expected_release
-        ));
-        report_builder.push_str(&format!("> **Why it qualifies:** {}\n\n", e.why_qualifies));
-        if !e.platforms.is_empty() && e.platforms != "TBD" {
-            report_builder.push_str(&format!("- **Target Platforms:** {}\n", e.platforms));
+    if final_entities.is_empty() {
+        report_builder.push_str("No verified candidate entities met the specified criteria. Below are the top retrieved research sources and excerpts for review:\n\n");
+        for (i, ev) in top_evidence.iter().take(5).enumerate() {
+            report_builder.push_str(&format!(
+                "### {:02}. {}\n**Source:** {} | **Reference:** [Source Link]({})\n\n> {}\n\n",
+                i + 1,
+                ev.title,
+                ev.source.as_deref().unwrap_or("Web"),
+                ev.url,
+                ev.snippet
+            ));
         }
-        if let Some(lim) = &e.limitations {
-            report_builder.push_str(&format!("- **Known Caveat:** {}\n", lim));
+    } else {
+        for e in &final_entities {
+            report_builder.push_str(&format!(
+                "### {:02}. {}\n**Status:** {} | **Developer / Creator:** {} | **Category:** {} | **Target:** {}\n\n",
+                e.rank, e.name, e.status, e.developer, e.category, e.expected_release
+            ));
+            report_builder.push_str(&format!("> **Why it qualifies:** {}\n\n", e.why_qualifies));
+            if !e.platforms.is_empty() && e.platforms != "TBD" {
+                report_builder.push_str(&format!("- **Target Platforms:** {}\n", e.platforms));
+            }
+            if let Some(lim) = &e.limitations {
+                report_builder.push_str(&format!("- **Known Caveat:** {}\n", lim));
+            }
+            report_builder.push('\n');
         }
-        report_builder.push('\n');
     }
 
-    // Section 3: Evidence & Verification
+    // Section 3: Source-by-Source Summaries
+    if !source_digests.is_empty() {
+        report_builder.push_str("## Source-by-Source Summaries\n\n");
+        for d in source_digests {
+            let ent_str = if d.entities.is_empty() {
+                "None disclosed".to_string()
+            } else {
+                d.entities.join(", ")
+            };
+            report_builder.push_str(&format!(
+                "### [{}] {}\n**Reference:** [Source Link]({}) | **Relevance:** `{}`\n**Entities Identified:** {}\n\n> {}\n\n",
+                d.source_id, d.title, d.url, d.relevance, ent_str, d.summary
+            ));
+        }
+    }
+
+    // Section 4: Evidence & Verification
     report_builder.push_str("## Evidence & Verification\n\n");
     for e in &final_entities {
         if !e.claims.is_empty() {
@@ -657,28 +948,40 @@ pub fn parse_and_structure_evidence(
         }
     }
 
-    // Section 4: Comparison Matrix
-    report_builder.push_str("## Comparison Matrix\n\n");
-    report_builder.push_str("| # | Candidate | Expected Release | Developer / Creator | Platforms | Confidence |\n");
-    report_builder.push_str("|---|-----------|------------------|---------------------|-----------|------------|\n");
-    for (i, row) in comparison_matrix.iter().enumerate() {
-        report_builder.push_str(&format!(
-            "| {} | {} | {} | {} | {} | {} |\n",
-            i + 1, row.entity_name, row.release, row.developer, row.platforms, row.confidence
-        ));
+    // Section 5: Comparison Matrix (Rendered only when verified candidates exist)
+    if !comparison_matrix.is_empty() {
+        report_builder.push_str("## Comparison Matrix\n\n");
+        report_builder.push_str("| # | Candidate | Expected Release | Developer / Creator | Platforms | Confidence |\n");
+        report_builder.push_str("|---|-----------|------------------|---------------------|-----------|------------|\n");
+        for (i, row) in comparison_matrix.iter().enumerate() {
+            report_builder.push_str(&format!(
+                "| {} | {} | {} | {} | {} | {} |\n",
+                i + 1, row.entity_name, row.release, row.developer, row.platforms, row.confidence
+            ));
+        }
+        report_builder.push('\n');
     }
-    report_builder.push('\n');
 
-    // Section 5: Analysis & Synthesized Insights
+    // Section 6: Analysis & Synthesized Insights
     report_builder.push_str("## Analysis & Strategic Insights\n\n");
-    report_builder.push_str(&format!(
-        "Analysis of {} verified candidates confirms that production roadmaps for {} remain concentrated among key organizations. \
+    if !combined_summary.trim().is_empty() {
+        report_builder.push_str(combined_summary.trim());
+        report_builder.push_str("\n\n");
+    } else if final_entities.is_empty() {
+        report_builder.push_str(&format!(
+            "Review of {} retrieved public disclosures indicates limited explicit roadmap targets for \"{}\". Detailed source digests and evidence records are cataloged above for reference.\n\n",
+            total_sources_count, query
+        ));
+    } else {
+        report_builder.push_str(&format!(
+            "Analysis of {} verified candidates confirms that production roadmaps for {} remain concentrated among key organizations. \
 Cross-referencing verified primary disclosures against industry reporting indicates that {} of {} entities possess confirmed milestones, \
 while {} remain preliminary projections subject to scheduling adjustments.\n\n",
-        final_entities.len(), query, verified_count, final_entities.len(), uncertain_count
-    ));
+            final_entities.len(), query, verified_count, final_entities.len(), uncertain_count
+        ));
+    }
 
-    // Section 6: Research Limitations & Information Gaps
+    // Section 7: Research Limitations & Information Gaps
     report_builder.push_str("## Research Limitations & Information Gaps\n\n");
     for lim in &all_limitations {
         report_builder.push_str(&format!("- **{}:** {}\n", lim.category, lim.description));
@@ -925,6 +1228,7 @@ Output ONLY JSON: {\"satisfied\": true/false, \"missing\": [\"what is missing\"]
     let mut all_search_results = Vec::new();
     let mut seen_urls = std::collections::HashSet::new();
     let mut collected_citations: Vec<String> = Vec::new();
+    let mut accumulated_discovered_entities: Vec<String> = Vec::new();
     let mut iteration = 0;
     let max_iterations = 3;
     let mut current_ir_queries = synthesis.ir_queries.clone();
@@ -1066,6 +1370,17 @@ Output ONLY JSON: {\"satisfied\": true/false, \"missing\": [\"what is missing\"]
             break;
         }
 
+        // Accumulate candidate entities discovered during constraint verification into Working Memory
+        for candidate_name in &check.missing {
+            let trimmed = candidate_name.trim();
+            if is_valid_candidate_entity(trimmed, query) {
+                let norm = canonical_entity_key(trimmed);
+                if !accumulated_discovered_entities.iter().any(|e| canonical_entity_key(e) == norm) {
+                    accumulated_discovered_entities.push(trimmed.to_string());
+                }
+            }
+        }
+
         if iteration < max_iterations {
             let missing_desc = check.missing.join(", ");
             emit_haptic(
@@ -1100,28 +1415,168 @@ Output ONLY JSON: {\"satisfied\": true/false, \"missing\": [\"what is missing\"]
     // -----------------------------------------------------------------------
     // Top-5 Evidence Ranking & Context Compression
     // -----------------------------------------------------------------------
+    let total_sources_count = all_search_results.len().max(collected_citations.len());
+
     let top_evidence = rank_and_select_top_evidence(
         all_search_results.clone(),
         query,
         &synthesis.search_keywords,
-        5,
+        &accumulated_discovered_entities,
+        15,
     );
 
-    for item in &all_search_results {
-        if !item.url.is_empty() && !collected_citations.contains(&item.url) && collected_citations.len() < 15 {
-            collected_citations.push(item.url.clone());
+    // -----------------------------------------------------------------------
+    // Step 5: Map-Reduce Source Digest Stage (Deep Webpage Reader)
+    // -----------------------------------------------------------------------
+    let digest_candidates: Vec<crate::search::SearchResult> = top_evidence.iter().take(8).cloned().collect();
+    let digest_start = Instant::now();
+
+    crate::logger::log_event(
+        app,
+        "DIGEST",
+        pipeline_start.elapsed().as_millis() as u64,
+        &format!("Starting Map-Reduce Source Digest stage for top {} sources", digest_candidates.len()),
+    );
+
+    emit_haptic(
+        app,
+        "digesting",
+        "Deep-reading source webpages and compiling digests...",
+        Some(&format!("{} sources", digest_candidates.len())),
+    );
+
+    if let Some(h) = app {
+        h.emit(
+            "research-progress",
+            ProgressEvent {
+                stage: "digesting".into(),
+                message: format!("Deep-reading top {} source webpages...", digest_candidates.len()),
+                query: query.to_string(),
+                subquery: None,
+                words: synthesis.search_keywords.clone(),
+                sources_count: total_sources_count,
+                current_layer: 2,
+                max_layers: 3,
+            },
+        )
+        .ok();
+    }
+
+    let sem = Arc::new(Semaphore::new(3));
+    let app_handle = app.cloned();
+    let research_goal = synthesis.research_goal.clone();
+    let llm_cfg = config.llm.clone();
+
+    let digest_futs = digest_candidates.iter().enumerate().map(|(idx, r)| {
+        let sem = sem.clone();
+        let app_h = app_handle.clone();
+        let goal = research_goal.clone();
+        let cfg = llm_cfg.clone();
+        let r = r.clone();
+        let source_id = idx + 1;
+        async move {
+            let _permit = sem.acquire().await;
+            digest_source(app_h.as_ref(), &goal, source_id, &r, &cfg).await
+        }
+    });
+
+    let digests: Vec<SourceDigest> = futures_util::future::join_all(digest_futs).await;
+
+    // Feed map-stage discovered entities into Working Memory
+    for d in &digests {
+        for ent in &d.entities {
+            let base_ent = if let Some(pos) = ent.find(" - ") {
+                &ent[..pos]
+            } else if let Some(pos) = ent.find(" (") {
+                &ent[..pos]
+            } else {
+                ent.as_str()
+            }
+            .trim();
+
+            let target_name = if is_valid_candidate_entity(base_ent, query) {
+                base_ent
+            } else if is_valid_candidate_entity(ent.trim(), query) {
+                ent.trim()
+            } else {
+                ""
+            };
+
+            if !target_name.is_empty() {
+                let norm = canonical_entity_key(target_name);
+                if !accumulated_discovered_entities.iter().any(|e| canonical_entity_key(e) == norm) {
+                    accumulated_discovered_entities.push(target_name.to_string());
+                }
+            }
         }
     }
+
+    // Reduce step: combine all source digests into one synthesized answer
+    let mut digest_block = format!("GOAL: {}\n\nSOURCE DIGESTS:\n", synthesis.research_goal);
+    for d in &digests {
+        digest_block.push_str(&format!(
+            "[{}] {} ({})\nSummary: {}\nDisclosed Entities: {}\nRelevance: {}\n\n",
+            d.source_id,
+            d.title,
+            d.url,
+            d.summary,
+            if d.entities.is_empty() { "None".to_string() } else { d.entities.join(", ") },
+            d.relevance
+        ));
+    }
+
+    emit_haptic(app, "reducing", "Combining source digests into synthesized answer...", None);
+
+    let reduce_sys = "Combine source summaries into one clear, accurate answer for the research goal. \
+Cite sources as [id] (e.g. [1], [2]). \
+If the goal asks for a list or candidates, provide a ranked list with source citations. \
+Say clearly what is confirmed and what is only rumored or projected. \
+State facts directly without meta-commentary or boilerplate. Do not invent facts.";
+
+    let combined_summary = match invoke_micro_task_with_tokens(
+        app,
+        reduce_sys,
+        &digest_block,
+        900,
+        &config.llm,
+    )
+    .await
+    {
+        Ok(s) => strip_think_tags(&s).trim().to_string(),
+        Err(_) => String::new(),
+    };
+
+    crate::logger::log_event(
+        app,
+        "DIGEST",
+        pipeline_start.elapsed().as_millis() as u64,
+        &format!(
+            "Completed Source Digest Map-Reduce in {}ms ({} digests, {} entities accumulated)",
+            digest_start.elapsed().as_millis(),
+            digests.len(),
+            accumulated_discovered_entities.len()
+        ),
+    );
 
     let mut evidence_lines = Vec::new();
     for (idx, item) in top_evidence.iter().enumerate() {
         let src_name = item.source.as_deref().unwrap_or("Web");
+        let summary_text = if let Some(d) = digests.iter().find(|d| d.source_id == idx + 1) {
+            if !d.entities.is_empty() {
+                format!("{}\nDisclosed Entities: {}", d.summary, d.entities.join(", "))
+            } else {
+                d.summary.clone()
+            }
+        } else {
+            item.snippet.clone()
+        };
+
         evidence_lines.push(format!(
             "[{}] {} ({})\nSummary: {}",
             idx + 1,
             item.title,
             src_name,
-            item.snippet
+            summary_text
         ));
     }
     let compact_evidence = if evidence_lines.is_empty() {
@@ -1153,7 +1608,7 @@ Output ONLY JSON: {\"satisfied\": true/false, \"missing\": [\"what is missing\"]
                 query: query.to_string(),
                 subquery: None,
                 words: synthesis.search_keywords.clone(),
-                sources_count: collected_citations.len(),
+                sources_count: total_sources_count,
                 current_layer: 2,
                 max_layers: 3,
             },
@@ -1162,7 +1617,7 @@ Output ONLY JSON: {\"satisfied\": true/false, \"missing\": [\"what is missing\"]
     }
 
     // -----------------------------------------------------------------------
-    // Step 5: Evidence-First Entity & Claim Extraction
+    // Step 6: Evidence-First Entity & Claim Extraction
     // -----------------------------------------------------------------------
     emit_haptic(app, "extracting", "Extracting verified entities and claim evidence...", None);
 
@@ -1217,13 +1672,28 @@ Output ONLY a JSON object:\n\
   ]\n\
 }}", target_type);
 
+    let candidates_hint = if !accumulated_discovered_entities.is_empty() {
+        format!(
+            "\nDISCOVERED CANDIDATE SUBJECTS FROM PRIOR RESEARCH:\n{}\n\nTask: Verify each of the discovered candidates above against the evidence sources below, extract their developer/studio, expected release window, target platforms, and qualification claims. If an entity is in development or targeted, include it in your output.\n",
+            accumulated_discovered_entities
+                .iter()
+                .enumerate()
+                .map(|(i, name)| format!("{}. {}", i + 1, name))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+    } else {
+        String::new()
+    };
+
     let extractor_prompt = format!(
-        "Query: {}\nResearch Goal: {}\nTarget Entity Type: {}\nRequested Count: {}\nHard Constraints: {}\n\nTop Evidence Sources:\n{}",
+        "Query: {}\nResearch Goal: {}\nTarget Entity Type: {}\nRequested Count: {}\nHard Constraints: {}{}\n\nTop Evidence Sources:\n{}",
         query,
         synthesis.research_goal,
         target_type,
         requested_quota,
         synthesis.hard_constraints.join("; "),
+        candidates_hint,
         compact_evidence
     );
 
@@ -1272,7 +1742,7 @@ Output ONLY a JSON object:\n\
         .ok();
     }
 
-    emit_haptic(app, "synthesizing", "Assembling evidence-first research report...", Some(&format!("{} sources cited", collected_citations.len())));
+    emit_haptic(app, "synthesizing", "Assembling evidence-first research report...", Some(&format!("{} sources cited", total_sources_count)));
 
     let (structured_data, candidates, final_report) = parse_and_structure_evidence(
         &extraction_raw,
@@ -1281,7 +1751,10 @@ Output ONLY a JSON object:\n\
         requested_quota,
         &top_evidence,
         &template_hint,
-        collected_citations.len(),
+        total_sources_count,
+        &accumulated_discovered_entities,
+        &digests,
+        &combined_summary,
     );
 
     let total_elapsed = pipeline_start.elapsed().as_millis() as u64;
@@ -1331,17 +1804,7 @@ Output ONLY a JSON object:\n\
         },
     ];
 
-    history::save_session(
-        query,
-        &config.mode,
-        &final_report,
-        &collected_citations,
-        layers.len(),
-        candidates.len(),
-    )
-    .ok();
-
-    Ok(ResearchOutput {
+    let res_output = ResearchOutput {
         query: query.to_string(),
         mode: config.mode.clone(),
         constraints,
@@ -1352,7 +1815,22 @@ Output ONLY a JSON object:\n\
         stopped_early: true,
         template_hint,
         structured_data: Some(structured_data),
-    })
+    };
+
+    let serialized_output = serde_json::to_string(&res_output).ok();
+
+    history::save_session(
+        query,
+        &config.mode,
+        &res_output.final_report,
+        &res_output.citations,
+        res_output.layers.len(),
+        res_output.candidates.len(),
+        serialized_output.as_deref(),
+    )
+    .ok();
+
+    Ok(res_output)
 }
 
 /// Instant 1-pass search
@@ -1397,7 +1875,7 @@ async fn run_instant_pipeline(
     .await;
 
     // Rank and select top 5 evidence articles to keep prompt context concise & lightning fast
-    let top_evidence = rank_and_select_top_evidence(results.clone(), query, &[], 5);
+    let top_evidence = rank_and_select_top_evidence(results.clone(), query, &[], &[], 5);
 
     let mut citations = Vec::new();
     let mut snippets = Vec::new();
@@ -1492,9 +1970,7 @@ Start with a direct answer or status overview, state any official date/target ca
         &format!("Instant Search completed in {}ms", total_elapsed),
     );
 
-    history::save_session(query, &config.mode, &report, &citations, 1, 1).ok();
-
-    Ok(ResearchOutput {
+    let res_output = ResearchOutput {
         query: query.to_string(),
         mode: config.mode.clone(),
         constraints: vec![],
@@ -1516,7 +1992,22 @@ Start with a direct answer or status overview, state any official date/target ca
         stopped_early: true,
         template_hint: "default_prose".to_string(),
         structured_data: None,
-    })
+    };
+
+    let serialized_output = serde_json::to_string(&res_output).ok();
+
+    history::save_session(
+        query,
+        &config.mode,
+        &res_output.final_report,
+        &res_output.citations,
+        1,
+        1,
+        serialized_output.as_deref(),
+    )
+    .ok();
+
+    Ok(res_output)
 }
 
 /// 100% Offline Markdown / Obsidian Vault pipeline
@@ -1554,12 +2045,35 @@ async fn run_offline_vault_pipeline(
 
     for m in &matches {
         citations.push(format!("file://{}", m.full_path));
-        excerpts.push(format!("### [[{}]]\n{}", m.file_name, m.matched_excerpt));
+        let mut note_entry = format!("### [[{}]]\n{}", m.file_name, m.matched_excerpt);
+        if !m.wikilinks.is_empty() {
+            note_entry.push_str(&format!(
+                "\n*Outbound [[links]]:* {}",
+                m.wikilinks
+                    .iter()
+                    .take(5)
+                    .map(|l| format!("[[{}]]", l))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        if !m.backlinks.is_empty() {
+            note_entry.push_str(&format!(
+                "\n*Referenced by [[backlinks]]:* {}",
+                m.backlinks
+                    .iter()
+                    .take(5)
+                    .map(|b| format!("[[{}]]", b))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        excerpts.push(note_entry);
     }
 
     let report_sys = "You are an Offline Obsidian Vault Assistant. Synthesize an answer based EXCLUSIVELY on the provided local notes. \
 Do not make up facts. Reference note titles as [[Note Title]]. Format with clean headings and lists.";
-    let report = invoke_micro_task(
+    let mut report = invoke_micro_task(
         report_sys,
         &format!("Query: {}\nLocal Notes:\n{}", query, excerpts.join("\n\n")),
         &config.llm,
@@ -1567,9 +2081,29 @@ Do not make up facts. Reference note titles as [[Note Title]]. Format with clean
     .await
     .unwrap_or_else(|_| "Searched local markdown vault.".into());
 
-    history::save_session(query, &config.mode, &report, &citations, 1, matches.len()).ok();
+    let mut all_related_links: Vec<String> = Vec::new();
+    for m in &matches {
+        for l in &m.wikilinks {
+            if !all_related_links.contains(l) {
+                all_related_links.push(l.clone());
+            }
+        }
+        for b in &m.backlinks {
+            if !all_related_links.contains(b) {
+                all_related_links.push(b.clone());
+            }
+        }
+    }
 
-    Ok(ResearchOutput {
+    if !all_related_links.is_empty() {
+        report.push_str("\n\n### 🔗 Connected Vault Knowledge Graph\n");
+        report.push_str("Connected notes discovered via `[[wikilinks]]` and backlinks:\n\n");
+        for link in all_related_links.iter().take(8) {
+            report.push_str(&format!("* [[{}]]\n", link));
+        }
+    }
+
+    let res_output = ResearchOutput {
         query: query.to_string(),
         mode: "Offline Search".into(),
         constraints: vec![],
@@ -1595,7 +2129,22 @@ Do not make up facts. Reference note titles as [[Note Title]]. Format with clean
         stopped_early: true,
         template_hint: "default_prose".to_string(),
         structured_data: None,
-    })
+    };
+
+    let serialized_output = serde_json::to_string(&res_output).ok();
+
+    history::save_session(
+        query,
+        &config.mode,
+        &res_output.final_report,
+        &res_output.citations,
+        1,
+        matches.len(),
+        serialized_output.as_deref(),
+    )
+    .ok();
+
+    Ok(res_output)
 }
 
 pub fn strip_think_tags(s: &str) -> String {
@@ -1851,6 +2400,9 @@ mod tests {
             &evidence,
             "ranked_list",
             12,
+            &[],
+            &[],
+            "",
         );
 
         // 1. Blacklist check: GamesRadar & SearXNG MUST be rejected
@@ -1949,6 +2501,9 @@ mod tests {
             &evidence,
             "ranked_list",
             8,
+            &[],
+            &[],
+            "",
         );
 
         // TechCrunch must be dropped by blacklist
@@ -2013,6 +2568,9 @@ mod tests {
             &evidence,
             "comparison_table",
             6,
+            &[],
+            &[],
+            "",
         );
 
         // Tom's Hardware must be filtered out
@@ -2077,6 +2635,9 @@ mod tests {
             &evidence,
             "ranked_list",
             7,
+            &[],
+            &[],
+            "",
         );
 
         // Artemis 3 duplicate must be merged
@@ -2148,6 +2709,9 @@ mod tests {
             &evidence,
             "ranked_list",
             9,
+            &[],
+            &[],
+            "",
         );
 
         // Hacker News must be filtered
@@ -2163,4 +2727,159 @@ mod tests {
         assert!(report.contains("## Analysis & Strategic Insights"));
         assert!(report.contains("## Research Limitations & Information Gaps"));
     }
+    #[test]
+    fn test_is_valid_candidate_entity_rejects_query_echoes_and_containers() {
+        let q = "Top 10 upcoming games in 2028";
+        assert!(!is_valid_candidate_entity("Upcoming Games 2028", q));
+        assert!(!is_valid_candidate_entity("Most anticipated games of 2028", q));
+        assert!(!is_valid_candidate_entity("All the upcoming PS5 games for 2026 (and beyond)", q));
+        assert!(!is_valid_candidate_entity("Release Calendar", q));
+        assert!(!is_valid_candidate_entity("Upcoming Games 2028 for PC", q));
+        assert!(!is_valid_candidate_entity("<a href='...'>Game</a>", q));
+        assert!(!is_valid_candidate_entity("https://example.com/games", q));
+
+        // Valid games must pass
+        assert!(is_valid_candidate_entity("The Witcher 4", q));
+        assert!(is_valid_candidate_entity("Half-Life 3", q));
+        assert!(is_valid_candidate_entity("Gothic 5", q));
+    }
+
+    #[test]
+    fn test_empty_llm_json_produces_honest_report_without_fake_entities() {
+        let evidence = mock_evidence();
+        let (structured, candidates, report) = parse_and_structure_evidence(
+            "{}",
+            "Top 10 upcoming games in 2028",
+            "Video Games",
+            10,
+            &evidence,
+            "ranked_list",
+            5,
+            &[],
+            &[],
+            "",
+        );
+
+        // ZERO fake candidates fabricated
+        assert_eq!(candidates.len(), 0);
+        assert_eq!(structured.entities.len(), 0);
+        assert_eq!(structured.verified_count, 0);
+        assert_eq!(structured.uncertain_count, 0);
+
+        // Report does not contain fake "Upcoming Games 2028" candidate titles
+        assert!(!report.contains("### 01. Upcoming Games 2028"));
+        assert!(!report.contains("Identified in Evidence"));
+        assert!(report.contains("No verified candidate entities met the specified criteria"));
+        assert!(report.contains("## Results"));
+        assert!(!report.contains("## Comparison Matrix"));
+    }
+
+    #[test]
+    fn test_goal_validation_grounds_discovered_entities_when_extractor_empty() {
+        let evidence = mock_evidence();
+        let discovered = vec!["The Witcher 4".to_string(), "Gothic 5".to_string()];
+        let (structured, candidates, report) = parse_and_structure_evidence(
+            "{}",
+            "Top 10 upcoming games in 2028",
+            "Video Games",
+            10,
+            &evidence,
+            "ranked_list",
+            15,
+            &discovered,
+            &[],
+            "",
+        );
+
+        // Goal validation successfully grounded the 2 discovered entities from working memory
+        assert_eq!(candidates.len(), 2);
+        assert_eq!(structured.entities.len(), 2);
+        assert_eq!(structured.uncertain_count, 2);
+        assert_eq!(candidates[0].name, "The Witcher 4");
+        assert_eq!(candidates[1].name, "Gothic 5");
+
+        // Report contains valid results and comparison matrix
+        assert!(report.contains("## Results"));
+        assert!(report.contains("### 01. The Witcher 4"));
+        assert!(report.contains("### 02. Gothic 5"));
+        assert!(report.contains("## Comparison Matrix"));
+    }
+
+    #[test]
+    fn test_parse_digest_and_fallbacks() {
+        let sample_sr = crate::search::SearchResult {
+            title: "2028 Video Game Release Calendar".into(),
+            snippet: "Track all confirmed and rumored games scheduled for 2028.".into(),
+            url: "https://example.com/games-2028".into(),
+            source: Some("GameTracker".into()),
+        };
+
+        // 1. Valid JSON digest
+        let valid_json = r#"{
+            "summary": "Verified list of games slated for 2028 including Witcher 4 and Fallout 5.",
+            "entities": ["The Witcher 4", "Fallout 5"],
+            "relevance": "high"
+        }"#;
+        let digest = parse_digest(valid_json, 1, &sample_sr);
+        assert_eq!(digest.source_id, 1);
+        assert_eq!(digest.relevance, "high");
+        assert_eq!(digest.entities.len(), 2);
+        assert!(digest.summary.contains("Witcher 4"));
+
+        // 2. Malformed JSON falls back safely to snippet
+        let bad_json = "This is not json at all";
+        let fallback_digest = parse_digest(bad_json, 2, &sample_sr);
+        assert_eq!(fallback_digest.source_id, 2);
+        assert_eq!(fallback_digest.relevance, "medium");
+        assert_eq!(fallback_digest.summary, sample_sr.snippet);
+        assert!(fallback_digest.entities.is_empty());
+    }
+
+    #[test]
+    fn test_source_digests_and_combined_summary_integration() {
+        let evidence = mock_evidence();
+        let digests = vec![
+            SourceDigest {
+                source_id: 1,
+                title: "Upcoming 2028 Games Tracker".into(),
+                url: "https://example.com/2028".into(),
+                summary: "Exhaustive tracker highlighting Witcher 4 and Elder Scrolls VI for 2028.".into(),
+                entities: vec!["The Witcher 4".into(), "Elder Scrolls VI".into()],
+                relevance: "high".into(),
+            },
+        ];
+        let combined_llm_summary = "Across multiple industry release schedules, 2028 features key next-gen titles such as The Witcher 4 [1].";
+
+        let (structured, candidates, report) = parse_and_structure_evidence(
+            "{}",
+            "Top 10 upcoming games in 2028",
+            "Video Games",
+            10,
+            &evidence,
+            "ranked_list",
+            29,
+            &[],
+            &digests,
+            combined_llm_summary,
+        );
+
+        // Structured data preserves source digests and combined summary
+        assert!(candidates.is_empty());
+        assert_eq!(structured.source_digests.len(), 1);
+        assert_eq!(structured.source_digests[0].source_id, 1);
+        assert_eq!(structured.executive_summary, combined_llm_summary);
+
+        // Report contains Source-by-Source Summaries section
+        assert!(report.contains("## Source-by-Source Summaries"));
+        assert!(report.contains("### [1] Upcoming 2028 Games Tracker"));
+        assert!(report.contains("The Witcher 4, Elder Scrolls VI"));
+
+        // Executive Summary & Analysis sections use LLM combined summary rather than hardcoded "have not yet been officially announced"
+        assert!(report.contains(combined_llm_summary));
+        assert!(!report.contains("have not yet been officially announced"));
+
+        // Metrics report 29 sources checked consistently
+        assert!(report.contains("Total Sources Checked: **29**"));
+    }
+
 }

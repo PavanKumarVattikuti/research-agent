@@ -35,13 +35,35 @@ pub async fn execute_multi_source_search(
         || q_lower.contains("python")
         || q_lower.contains("tech");
 
-    // Run primary search, Google News RSS, and Hacker News concurrently in parallel
-    let (primary_res, news_res, hn_res) = tokio::join!(
+    let is_academic = is_tech
+        || q_lower.contains("paper")
+        || q_lower.contains("study")
+        || q_lower.contains("model")
+        || q_lower.contains("benchmark")
+        || q_lower.contains("algorithm")
+        || q_lower.contains("quantum")
+        || q_lower.contains("neural")
+        || q_lower.contains("physics")
+        || q_lower.contains("biology")
+        || q_lower.contains("deep learning")
+        || q_lower.contains("science")
+        || q_lower.contains("hugging")
+        || q_lower.contains("arxiv");
+
+    // Run primary search, Google News RSS, Hacker News, and arXiv concurrently in parallel
+    let (primary_res, news_res, hn_res, arxiv_res) = tokio::join!(
         execute_search(query, engine, searx_url, brave_key),
         fetch_google_news_rss(query),
         async {
             if is_tech {
                 fetch_hacker_news(query).await
+            } else {
+                Ok(Vec::new())
+            }
+        },
+        async {
+            if is_academic {
+                fetch_arxiv_search(query).await
             } else {
                 Ok(Vec::new())
             }
@@ -78,6 +100,16 @@ pub async fn execute_multi_source_search(
         }
     }
 
+    let mut arxiv_count = 0;
+    if let Ok(arxiv_results) = arxiv_res {
+        for r in arxiv_results {
+            if seen_urls.insert(r.url.clone()) {
+                arxiv_count += 1;
+                all_results.push(r);
+            }
+        }
+    }
+
     let raw_count = all_results.len();
     let filtered = filter_by_domain_relevance(all_results, domain_terms, excluded_terms);
     let elapsed_ms = start.elapsed().as_millis() as u64;
@@ -87,7 +119,7 @@ pub async fn execute_multi_source_search(
         "SEARCH",
         elapsed_ms,
         &format!(
-            "Multi-source search for \"{}\" yielded {} items ({} filtered to {}) in {}ms [primary: {}, news: {}, hn: {}]",
+            "Multi-source search for \"{}\" yielded {} items ({} filtered to {}) in {}ms [primary: {}, news: {}, hn: {}, arxiv: {}]",
             query,
             raw_count,
             raw_count,
@@ -95,7 +127,8 @@ pub async fn execute_multi_source_search(
             elapsed_ms,
             primary_count,
             news_count,
-            hn_count
+            hn_count,
+            arxiv_count
         ),
     );
 
@@ -144,6 +177,18 @@ pub async fn fetch_google_news_rss(query: &str) -> Result<Vec<SearchResult>, Str
 }
 
 /// Parses RSS XML items into clean SearchResult objects.
+/// Strips all HTML tags (both raw <tag> and escaped &lt;tag&gt;) and normalizes XML entities
+pub fn strip_all_html(s: &str) -> String {
+    if let Ok(re) = Regex::new(r"<[^>]+>") {
+        let p1 = re.replace_all(s, " ");
+        let p2 = clean_xml_entities(&p1);
+        let p3 = re.replace_all(&p2, " ");
+        clean_xml_entities(&p3)
+    } else {
+        clean_xml_entities(s)
+    }
+}
+
 pub fn parse_rss_xml(xml: &str) -> Result<Vec<SearchResult>, String> {
     let item_re = Regex::new(r"(?s)<item>(.*?)</item>").map_err(|e| e.to_string())?;
     let title_re = Regex::new(r"(?s)<title>(.*?)</title>").map_err(|e| e.to_string())?;
@@ -151,17 +196,25 @@ pub fn parse_rss_xml(xml: &str) -> Result<Vec<SearchResult>, String> {
     let desc_re = Regex::new(r"(?s)<description>(.*?)</description>").map_err(|e| e.to_string())?;
     let source_re = Regex::new(r#"(?s)<source[^>]*>(.*?)</source>"#).map_err(|e| e.to_string())?;
 
-    let html_tag_re = Regex::new(r"<[^>]+>").map_err(|e| e.to_string())?;
-
     let mut results = Vec::new();
 
     for cap in item_re.captures_iter(xml).take(8) {
         let item_body = &cap[1];
 
-        let title = title_re
+        let unstripped_title = title_re
             .captures(item_body)
-            .map(|c| clean_xml_entities(&c[1]))
+            .map(|c| c[1].to_string())
             .unwrap_or_default();
+        let clean_full_title = strip_all_html(&unstripped_title);
+
+        let (title, title_pub) = if let Some(dash_idx) = clean_full_title.rfind(" - ") {
+            (
+                clean_full_title[..dash_idx].trim().to_string(),
+                Some(clean_full_title[dash_idx + 3..].trim().to_string()),
+            )
+        } else {
+            (clean_full_title, None)
+        };
 
         let link = link_re
             .captures(item_body)
@@ -172,20 +225,12 @@ pub fn parse_rss_xml(xml: &str) -> Result<Vec<SearchResult>, String> {
             .captures(item_body)
             .map(|c| c[1].to_string())
             .unwrap_or_default();
-
-        let clean_desc = html_tag_re.replace_all(&raw_desc, " ");
-        let snippet = clean_xml_entities(&clean_desc);
+        let snippet = strip_all_html(&raw_desc);
 
         let source = source_re
             .captures(item_body)
-            .map(|c| clean_xml_entities(&c[1]))
-            .or_else(|| {
-                if let Some(dash_idx) = title.rfind(" - ") {
-                    Some(title[dash_idx + 3..].trim().to_string())
-                } else {
-                    None
-                }
-            });
+            .map(|c| strip_all_html(&c[1]))
+            .or(title_pub);
 
         if !title.is_empty() && !link.is_empty() {
             results.push(SearchResult {
@@ -200,7 +245,7 @@ pub fn parse_rss_xml(xml: &str) -> Result<Vec<SearchResult>, String> {
     Ok(results)
 }
 
-fn clean_xml_entities(s: &str) -> String {
+pub fn clean_xml_entities(s: &str) -> String {
     s.replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
@@ -267,6 +312,91 @@ pub async fn fetch_hacker_news(query: &str) -> Result<Vec<SearchResult>, String>
     Ok(results)
 }
 
+/// arXiv.org API for scientific preprints and academic research
+pub async fn fetch_arxiv_search(query: &str) -> Result<Vec<SearchResult>, String> {
+    let clean_q = query.replace('"', "").replace(':', " ");
+    let encoded = url::form_urlencoded::byte_serialize(clean_q.as_bytes()).collect::<String>();
+    let url = format!(
+        "https://export.arxiv.org/api/query?search_query=all:{}&start=0&max_results=5",
+        encoded
+    );
+
+    validate_external_url(&url)?;
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(6))
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let resp = client
+        .get(&url)
+        .header("User-Agent", "ResearchAgent/2.3.0 (academic-research-bot)")
+        .send()
+        .await
+        .map_err(|e| format!("arXiv error: {}", e))?;
+
+    let xml = resp.text().await.map_err(|e| e.to_string())?;
+    parse_arxiv_xml(&xml)
+}
+
+/// Parses arXiv Atom XML entries into SearchResult objects
+pub fn parse_arxiv_xml(xml: &str) -> Result<Vec<SearchResult>, String> {
+    let entry_re = Regex::new(r"(?s)<entry>(.*?)</entry>").map_err(|e| e.to_string())?;
+    let title_re = Regex::new(r"(?s)<title>(.*?)</title>").map_err(|e| e.to_string())?;
+    let summary_re = Regex::new(r"(?s)<summary>(.*?)</summary>").map_err(|e| e.to_string())?;
+    let id_re = Regex::new(r"(?s)<id>(.*?)</id>").map_err(|e| e.to_string())?;
+    let author_re = Regex::new(r"(?s)<author>\s*<name>(.*?)</name>").map_err(|e| e.to_string())?;
+    let published_re = Regex::new(r"(?s)<published>(.*?)</published>").map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+
+    for cap in entry_re.captures_iter(xml).take(5) {
+        let entry_body = &cap[1];
+
+        let title = title_re
+            .captures(entry_body)
+            .map(|c| clean_xml_entities(&c[1]))
+            .unwrap_or_default();
+
+        let link = id_re
+            .captures(entry_body)
+            .map(|c| c[1].trim().to_string())
+            .unwrap_or_default();
+
+        let summary = summary_re
+            .captures(entry_body)
+            .map(|c| clean_xml_entities(&c[1]))
+            .unwrap_or_default();
+
+        let first_author = author_re
+            .captures(entry_body)
+            .map(|c| clean_xml_entities(&c[1]))
+            .unwrap_or_else(|| "Researcher".into());
+
+        let year = published_re
+            .captures(entry_body)
+            .and_then(|c| c[1].get(..4).map(|s| s.to_string()))
+            .unwrap_or_default();
+
+        let snippet = if !year.is_empty() {
+            format!("[Preprint: {} et al., {}] {}", first_author, year, summary)
+        } else {
+            format!("[Preprint: {} et al.] {}", first_author, summary)
+        };
+
+        if !title.is_empty() && !link.is_empty() {
+            results.push(SearchResult {
+                title,
+                snippet,
+                url: link,
+                source: Some("arXiv.org".into()),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
 /// Filters results to ensure semantic relevance to the query domain
 pub fn filter_by_domain_relevance(
     results: Vec<SearchResult>,
@@ -320,6 +450,7 @@ pub fn rank_and_select_top_evidence(
     results: Vec<SearchResult>,
     query: &str,
     domain_keywords: &[String],
+    target_entities: &[String],
     limit: usize,
 ) -> Vec<SearchResult> {
     if results.is_empty() {
@@ -360,13 +491,13 @@ pub fn rank_and_select_top_evidence(
 
         let mut score: f32 = 0.0;
 
-        // Query term matching in Title & Snippet
+        // Query term matching in Title & Snippet (baseline relevance)
         for qt in &query_terms {
             if title_clean.contains(qt) {
-                score += 5.0;
+                score += 3.0;
             }
             if snippet_clean.contains(qt) {
-                score += 2.0;
+                score += 1.5;
             }
         }
 
@@ -375,11 +506,35 @@ pub fn rank_and_select_top_evidence(
             let dk_lower = dk.to_lowercase();
             if !dk_lower.is_empty() {
                 if title_clean.contains(&dk_lower) {
-                    score += 4.0;
+                    score += 3.5;
                 }
                 if snippet_clean.contains(&dk_lower) {
                     score += 1.5;
                 }
+            }
+        }
+
+        // Discovered Candidate Entity Boost (+15.0 in title, +8.0 in snippet)
+        // Specific articles about discovered candidates are far more informative than generic aggregators
+        for te in target_entities {
+            let te_lower = te.to_lowercase();
+            if te_lower.len() >= 3 {
+                if title_clean.contains(&te_lower) {
+                    score += 15.0;
+                }
+                if snippet_clean.contains(&te_lower) {
+                    score += 8.0;
+                }
+            }
+        }
+
+        // Aggregator scoring: penalty for general queries, but boost for list/count-targeted queries (e.g. "top 10 games in 2028")
+        let is_list_query = crate::pipeline::extract_requested_count(query).is_some();
+        if title_clean.contains("calendar") || title_clean.contains("list of") || title_clean.contains("anticipated games") {
+            if is_list_query {
+                score += 3.5;
+            } else {
+                score -= 4.0;
             }
         }
 
@@ -525,9 +680,11 @@ async fn search_searxng(query: &str, searx_url: &str) -> Result<Vec<SearchResult
     let mut results = Vec::new();
     if let Some(items) = json["results"].as_array() {
         for it in items.iter().take(6) {
+            let raw_title = it["title"].as_str().unwrap_or_default();
+            let raw_content = it["content"].as_str().unwrap_or_default();
             results.push(SearchResult {
-                title: it["title"].as_str().unwrap_or_default().to_string(),
-                snippet: it["content"].as_str().unwrap_or_default().to_string(),
+                title: strip_all_html(raw_title),
+                snippet: strip_all_html(raw_content),
                 url: it["url"].as_str().unwrap_or_default().to_string(),
                 source: Some("SearXNG".into()),
             });
@@ -610,8 +767,32 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_parse_rss_xml_strips_html_and_escaped_tags() {
+        let sample_xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+<item>
+    <title>&lt;a href="https://news.google.com/articles/1" target="_blank"&gt;All the upcoming PS5 games for 2026 (and beyond)&lt;/a&gt; - GamesRadar+</title>
+    <link>https://news.google.com/articles/1</link>
+    <description>&lt;ol&gt;&lt;li&gt;&lt;a href="https://news.google.com/articles/1" target="_blank"&gt;All the upcoming PS5 games for 2026 (and beyond)&lt;/a&gt;&amp;nbsp;&amp;nbsp;&lt;font color="#6f6f6f"&gt;GamesRadar+&lt;/font&gt;&lt;/li&gt;&lt;/ol&gt;</description>
+    <source url="https://www.gamesradar.com">GamesRadar+</source>
+</item>
+</channel></rss>"##;
+
+        let items = parse_rss_xml(sample_xml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "All the upcoming PS5 games for 2026 (and beyond)");
+        assert!(!items[0].title.contains('<'));
+        assert!(!items[0].title.contains('>'));
+        assert!(!items[0].title.contains("href"));
+        assert!(!items[0].snippet.contains('<'));
+        assert!(!items[0].snippet.contains('>'));
+        assert!(!items[0].snippet.contains("font"));
+        assert_eq!(items[0].source.as_deref(), Some("GamesRadar+"));
+    }
+
+    #[test]
     fn test_parse_rss_xml() {
-        let sample_xml = r#"<?xml version="1.0" encoding="UTF-8"?>
+        let sample_xml = r##"<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <item>
     <title>Report: Next Xbox Targeting 2028 - Video Games Chronicle</title>
@@ -619,13 +800,37 @@ mod tests {
     <description>&lt;a href="..."&gt;Full details on 2028 roadmap&lt;/a&gt;</description>
     <source url="https://www.videogameschronicle.com">Video Games Chronicle</source>
 </item>
-</channel></rss>"#;
+</channel></rss>"##;
 
         let items = parse_rss_xml(sample_xml).unwrap();
         assert_eq!(items.len(), 1);
         assert!(items[0].title.contains("Next Xbox Targeting 2028"));
         assert_eq!(items[0].url, "https://news.google.com/articles/12345");
         assert_eq!(items[0].source.as_deref(), Some("Video Games Chronicle"));
+    }
+
+    #[test]
+    fn test_parse_arxiv_xml() {
+        let sample_xml = r##"<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2303.08774v1</id>
+    <published>2023-03-15T17:59:17Z</published>
+    <title>GPT-4 Technical Report</title>
+    <summary>We report the development of GPT-4, a large-scale, multimodal model pre-trained on diverse data.</summary>
+    <author>
+      <name>OpenAI</name>
+    </author>
+  </entry>
+</feed>"##;
+
+        let items = parse_arxiv_xml(sample_xml).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "GPT-4 Technical Report");
+        assert_eq!(items[0].url, "http://arxiv.org/abs/2303.08774v1");
+        assert_eq!(items[0].source.as_deref(), Some("arXiv.org"));
+        assert!(items[0].snippet.contains("OpenAI"));
+        assert!(items[0].snippet.contains("2023"));
     }
 
     #[test]
@@ -683,10 +888,62 @@ mod tests {
         ];
 
         let domain_terms = vec!["video games".into(), "game".into(), "studio".into()];
-        let top = rank_and_select_top_evidence(results, "upcoming games in 2028", &domain_terms, 2);
+        let top = rank_and_select_top_evidence(results, "upcoming games in 2028", &domain_terms, &[], 2);
 
         assert_eq!(top.len(), 2);
         assert!(top[0].title.contains("2028"));
         assert!(top[0].source.is_some());
     }
+    #[test]
+    fn test_rank_and_select_top_evidence_boosts_discovered_entities() {
+        let results = vec![
+            SearchResult {
+                title: "Upcoming Games 2028 - Release Calendar".into(),
+                snippet: "All upcoming games in 2028 release calendar tracker.".into(),
+                url: "https://calendar.com/2028".into(),
+                source: Some("Calendar".into()),
+            },
+            SearchResult {
+                title: "Gothic 5 in Active Production at Alkimia Interactive".into(),
+                snippet: "Disclosures confirm Gothic 5 target release window aiming for late 2028.".into(),
+                url: "https://rpgsite.com/gothic5".into(),
+                source: Some("RPGSite".into()),
+            },
+        ];
+
+        let target_entities = vec!["Gothic 5".into()];
+        let top = rank_and_select_top_evidence(results, "upcoming games in 2028", &[], &target_entities, 2);
+
+        // Gothic 5 article must be ranked #1 despite fewer query terms in title
+        assert_eq!(top.len(), 2);
+        assert!(top[0].title.contains("Gothic 5"));
+        assert!(top[1].title.contains("Calendar"));
+    }
+
+    #[test]
+    fn test_rank_and_select_top_evidence_boosts_aggregators_for_list_queries() {
+        let results = vec![
+            SearchResult {
+                title: "Deep Dive into Video Games 2028 Technology".into(),
+                snippet: "Engineering analysis of next-gen game engines and graphics in 2028.".into(),
+                url: "https://example.com/editorial".into(),
+                source: Some("Editorial".into()),
+            },
+            SearchResult {
+                title: "Video Games 2028 Release Calendar & Tracker".into(),
+                snippet: "Release calendar and tracker for video games in 2028.".into(),
+                url: "https://example.com/calendar-2028".into(),
+                source: Some("Tracker".into()),
+            },
+        ];
+
+        // For non-list query, calendar receives -4.0 penalty, so Deep Dive wins
+        let top_general = rank_and_select_top_evidence(results.clone(), "video games 2028", &[], &[], 2);
+        assert_eq!(top_general[0].title, "Deep Dive into Video Games 2028 Technology");
+
+        // For count/list query (e.g. "top 10 video games in 2028"), calendar receives +3.5 boost and wins
+        let top_list = rank_and_select_top_evidence(results, "top 10 video games in 2028", &[], &[], 2);
+        assert_eq!(top_list[0].title, "Video Games 2028 Release Calendar & Tracker");
+    }
+
 }

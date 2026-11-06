@@ -18,6 +18,10 @@ pub struct FullSession {
     pub summary: SessionSummary,
     pub report_markdown: String,
     pub citations: Vec<String>,
+    #[serde(default)]
+    pub output_json: Option<String>,
+    #[serde(default)]
+    pub output: Option<crate::pipeline::ResearchOutput>,
 }
 
 fn get_db_path() -> PathBuf {
@@ -38,10 +42,14 @@ pub fn init_tables(conn: &Connection) -> Result<()> {
             citations_json TEXT NOT NULL,
             layer_count INTEGER NOT NULL,
             candidate_count INTEGER NOT NULL,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            output_json TEXT
         )",
         [],
     )?;
+
+    // Safe migration: add output_json column if older table exists
+    let _ = conn.execute("ALTER TABLE sessions ADD COLUMN output_json TEXT", []);
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS app_meta (
@@ -123,14 +131,15 @@ pub fn save_session(
     citations: &[String],
     layer_count: usize,
     candidate_count: usize,
+    output_json: Option<&str>,
 ) -> Result<i64> {
     let conn = init_db()?;
     let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
     let citations_json = serde_json::to_string(citations).unwrap_or_else(|_| "[]".into());
 
     conn.execute(
-        "INSERT INTO sessions (query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO sessions (query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at, output_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             query,
             mode,
@@ -138,7 +147,8 @@ pub fn save_session(
             citations_json,
             layer_count as i64,
             candidate_count as i64,
-            now
+            now,
+            output_json
         ],
     )?;
 
@@ -185,7 +195,7 @@ pub fn get_recent_sessions() -> Result<Vec<SessionSummary>> {
 pub fn get_session_details(session_id: i64) -> Result<Option<FullSession>> {
     let conn = init_db()?;
     let mut stmt = conn.prepare(
-        "SELECT id, query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at
+        "SELECT id, query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at, output_json
          FROM sessions WHERE id = ?1",
     )?;
 
@@ -193,6 +203,10 @@ pub fn get_session_details(session_id: i64) -> Result<Option<FullSession>> {
     if let Some(row) = rows.next()? {
         let citations_str: String = row.get(4)?;
         let citations: Vec<String> = serde_json::from_str(&citations_str).unwrap_or_default();
+        let output_json_str: Option<String> = row.get(8).ok();
+        let output: Option<crate::pipeline::ResearchOutput> = output_json_str
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok());
 
         let summary = SessionSummary {
             id: row.get(0)?,
@@ -207,6 +221,8 @@ pub fn get_session_details(session_id: i64) -> Result<Option<FullSession>> {
             summary,
             report_markdown: row.get(3)?,
             citations,
+            output_json: output_json_str,
+            output,
         };
         Ok(Some(full))
     } else {
@@ -260,5 +276,81 @@ mod tests {
 
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM sessions WHERE id = ?1", params![new_id], |r| r.get(0)).unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_history_persists_and_restores_complete_output_json() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_tables(&conn).unwrap();
+
+        let sample_output = crate::pipeline::ResearchOutput {
+            query: "Top 10 upcoming games in 2028".into(),
+            mode: "Deep Search".into(),
+            constraints: vec![],
+            layers: vec![],
+            candidates: vec![],
+            final_report: "## Executive Summary\nComplete report text".into(),
+            citations: vec!["https://example.com/2028".into()],
+            stopped_early: true,
+            template_hint: "ranked_list".into(),
+            structured_data: Some(crate::pipeline::StructuredResearchData {
+                executive_summary: "Confirmed roadmaps include Witcher 4".into(),
+                requested_count: 10,
+                verified_count: 2,
+                uncertain_count: 1,
+                entities: vec![],
+                comparison_matrix: vec![],
+                limitations: vec![],
+                source_digests: vec![
+                    crate::pipeline::SourceDigest {
+                        source_id: 1,
+                        title: "Game Tracker".into(),
+                        url: "https://example.com/2028".into(),
+                        summary: "Detailed 2028 list".into(),
+                        entities: vec!["The Witcher 4".into()],
+                        relevance: "high".into(),
+                    }
+                ],
+            }),
+        };
+
+        let output_json = serde_json::to_string(&sample_output).unwrap();
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+
+        conn.execute(
+            "INSERT INTO sessions (query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at, output_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                sample_output.query,
+                sample_output.mode,
+                sample_output.final_report,
+                "[\"https://example.com/2028\"]",
+                1i64,
+                1i64,
+                now,
+                output_json
+            ],
+        ).unwrap();
+
+        let inserted_id = conn.last_insert_rowid();
+
+        // Query session back with output_json deserialization
+        let mut stmt = conn.prepare(
+            "SELECT id, query, mode, report_markdown, citations_json, layer_count, candidate_count, created_at, output_json
+             FROM sessions WHERE id = ?1",
+        ).unwrap();
+
+        let mut rows = stmt.query(params![inserted_id]).unwrap();
+        let row = rows.next().unwrap().unwrap();
+        let raw_json: Option<String> = row.get(8).ok();
+        assert!(raw_json.is_some());
+
+        let restored_output: crate::pipeline::ResearchOutput = serde_json::from_str(&raw_json.unwrap()).unwrap();
+        assert_eq!(restored_output.query, "Top 10 upcoming games in 2028");
+        assert!(restored_output.structured_data.is_some());
+        let sd = restored_output.structured_data.unwrap();
+        assert_eq!(sd.requested_count, 10);
+        assert_eq!(sd.source_digests.len(), 1);
+        assert_eq!(sd.source_digests[0].title, "Game Tracker");
     }
 }

@@ -11,23 +11,100 @@ use history::{get_recent_sessions, get_session_details, FullSession, SessionSumm
 use pipeline::{run_research_pipeline, PipelineConfig, ResearchOutput};
 use tester::{test_llm_endpoint, test_search_endpoint, TestResult};
 
+/// Validates raw user query for security: length constraints and disallowed control characters
+pub fn validate_query(raw_query: &str) -> Result<String, String> {
+    let trimmed = raw_query.trim();
+    if trimmed.len() < 2 {
+        return Err("Query too short: minimum 2 characters required.".into());
+    }
+    if trimmed.len() > 500 {
+        return Err("Query too long: maximum 500 characters allowed.".into());
+    }
+    if trimmed.chars().any(|c| (c as u32) < 32 && c != '\t' && c != '\n' && c != '\r') {
+        return Err("Query contains disallowed control characters.".into());
+    }
+    Ok(trimmed.to_string())
+}
+
+/// Sanitizes export filenames against directory traversal and whitelists file extensions
+pub fn sanitize_export_filename(raw_filename: &str) -> Result<String, String> {
+    let trimmed = raw_filename.trim();
+    if trimmed.is_empty() {
+        return Err("Filename cannot be empty.".into());
+    }
+    if trimmed.len() > 120 {
+        return Err("Filename exceeds maximum length of 120 characters.".into());
+    }
+    // Path traversal guard: strictly reject path separators or parent directory traversal
+    if trimmed.contains("..") || trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains(':') || trimmed.contains('\0') {
+        return Err("Filename contains illegal path traversal characters ('/', '\\', '..', ':').".into());
+    }
+    // Extension whitelist: must be .md, .html, or .txt
+    let lower = trimmed.to_lowercase();
+    if !lower.ends_with(".md") && !lower.ends_with(".html") && !lower.ends_with(".txt") {
+        return Err("Disallowed file format: only .md, .html, or .txt extensions are permitted.".into());
+    }
+    // Character whitelist: alphanumeric, dash, underscore, space, dot
+    if !trimmed.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.' || c == ' ') {
+        return Err("Filename contains illegal characters. Only alphanumeric, dashes, underscores, and dots are permitted.".into());
+    }
+    Ok(trimmed.to_string())
+}
+
 #[tauri::command]
 async fn test_llm(protocol: String, base_url: String, api_key: Option<String>) -> TestResult {
-    test_llm_endpoint(&protocol, &base_url, api_key.as_deref()).await
+    let proto_clean = protocol.trim().to_lowercase();
+    if proto_clean != "openai" && proto_clean != "anthropic" && proto_clean != "ollama" && proto_clean != "custom" {
+        return TestResult {
+            live: false,
+            latency_ms: 0,
+            message: format!("Unsupported LLM protocol: {}", protocol),
+            detected_models: vec![],
+        };
+    }
+    test_llm_endpoint(&proto_clean, &base_url, api_key.as_deref()).await
 }
 
 #[tauri::command]
 async fn test_search(engine: String, url_or_key: String) -> TestResult {
-    test_search_endpoint(&engine, &url_or_key).await
+    let eng_clean = engine.trim().to_lowercase();
+    let allowed = ["searxng", "google news", "brave", "brave search", "duckduckgo", "arxiv", "hacker news"];
+    if !allowed.iter().any(|a| *a == eng_clean) {
+        return TestResult {
+            live: false,
+            latency_ms: 0,
+            message: format!("Unsupported search engine: {}", engine),
+            detected_models: vec![],
+        };
+    }
+    test_search_endpoint(&eng_clean, &url_or_key).await
 }
 
 #[tauri::command]
 async fn execute_research(
     app: tauri::AppHandle,
     query: String,
-    config: PipelineConfig,
+    mut config: PipelineConfig,
 ) -> Result<ResearchOutput, String> {
-    run_research_pipeline(Some(&app), &query, &config).await
+    let clean_query = validate_query(&query)?;
+
+    // Validate mode
+    let mode_lower = config.mode.to_lowercase();
+    if !mode_lower.contains("deep")
+        && !mode_lower.contains("instant")
+        && !mode_lower.contains("compare")
+        && !mode_lower.contains("offline")
+    {
+        config.mode = "Deep Search".to_string();
+    }
+
+    // Validate protocol
+    let proto_lower = config.llm.protocol.to_lowercase();
+    if proto_lower != "openai" && proto_lower != "anthropic" && proto_lower != "ollama" && proto_lower != "custom" {
+        config.llm.protocol = "openai".to_string();
+    }
+
+    run_research_pipeline(Some(&app), &clean_query, &config).await
 }
 
 #[tauri::command]
@@ -52,7 +129,7 @@ fn clear_history() -> Result<(), String> {
 
 #[tauri::command]
 fn count_vault_notes(vault_path: String) -> usize {
-    let p = std::path::Path::new(&vault_path);
+    let p = std::path::Path::new(vault_path.trim());
     if !p.exists() || !p.is_dir() {
         return 0;
     }
@@ -71,6 +148,13 @@ fn count_vault_notes(vault_path: String) -> usize {
 
 #[tauri::command]
 fn save_markdown_export(filename: String, content: String) -> Result<String, String> {
+    let clean_name = sanitize_export_filename(&filename)?;
+
+    // Limit content size to max 15MB
+    if content.len() > 15 * 1024 * 1024 {
+        return Err("Content size exceeds 15MB limit.".into());
+    }
+
     let base_dir = std::env::var("USERPROFILE")
         .or_else(|_| std::env::var("HOME"))
         .map(|p| std::path::PathBuf::from(p).join("Downloads"))
@@ -79,12 +163,6 @@ fn save_markdown_export(filename: String, content: String) -> Result<String, Str
     if !base_dir.exists() {
         std::fs::create_dir_all(&base_dir).map_err(|e| e.to_string())?;
     }
-
-    let clean_name = if filename.ends_with(".md") || filename.ends_with(".html") || filename.ends_with(".txt") {
-        filename
-    } else {
-        format!("{}.md", filename)
-    };
 
     let target_path = base_dir.join(&clean_name);
     std::fs::write(&target_path, content.as_bytes()).map_err(|e| format!("Failed to write export file: {}", e))?;
@@ -119,6 +197,17 @@ fn save_logs_export() -> Result<String, String> {
     save_markdown_export(filename, text)
 }
 
+#[tauri::command]
+fn save_vault_export(
+    vault_path: String,
+    query: String,
+    mode: String,
+    content: String,
+    citations: Vec<String>,
+) -> Result<String, String> {
+    vault::export_to_obsidian_vault(&vault_path, &query, &mode, &content, &citations)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -136,7 +225,38 @@ pub fn run() {
             get_pipeline_logs,
             clear_pipeline_logs,
             save_logs_export,
+            save_vault_export,
         ])
         .run(tauri::generate_context!())
         .expect("error while running research agent application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_query_constraints() {
+        assert!(validate_query("a").is_err(), "Too short must fail");
+        assert!(validate_query("  ").is_err(), "Empty whitespace must fail");
+        assert!(validate_query(&"x".repeat(501)).is_err(), "Too long must fail");
+        assert!(validate_query("Valid Query 2028").is_ok(), "Normal query must succeed");
+        assert!(validate_query("Query with \0 null").is_err(), "Control chars must fail");
+    }
+
+    #[test]
+    fn test_sanitize_export_filename_path_traversal() {
+        // Path traversal must fail
+        assert!(sanitize_export_filename("../evil.md").is_err());
+        assert!(sanitize_export_filename("..\\evil.md").is_err());
+        assert!(sanitize_export_filename("/etc/passwd.txt").is_err());
+        assert!(sanitize_export_filename("C:\\Windows\\System32\\test.md").is_err());
+        assert!(sanitize_export_filename("evil.exe").is_err());
+        assert!(sanitize_export_filename("report.sh").is_err());
+
+        // Valid extensions must succeed
+        assert!(sanitize_export_filename("research-report-2028.md").is_ok());
+        assert!(sanitize_export_filename("research-report-2028.html").is_ok());
+        assert!(sanitize_export_filename("logs-20261104.txt").is_ok());
+    }
 }
